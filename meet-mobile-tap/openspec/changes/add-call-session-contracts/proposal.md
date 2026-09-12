@@ -1,3 +1,30 @@
+## Scope as of now
+
+This proposal was written around an audio-based `CallTransport` (PCM16 frames, RMS
+silence detection, `canSpeak`/`canHangup` capabilities). That sketch predates the scope
+decision that **Twilio does its own speech-to-text** via real-time transcription
+callbacks (`<Start><Transcription>` + a callback URL posting speaker-labelled segments),
+and that our own STT is deferred entirely — LiveKit included, which stays a call-only
+rung with no transcript source in this pass. `shared/` (already on disk) has been built
+around `TranscriptSource`/`TranscriptSegment` instead of `AudioFrame`/`CallTransport` —
+see `shared/README.md`'s own "Scope note", which is the authoritative statement of what
+actually exists.
+
+**Still in scope, unchanged in shape:** the `shared/` package itself, `Speaker`, the
+session state machine (`idle -> awaiting-consent -> running -> ending -> ended`), the
+consent gate, the event protocol (now carrying `TranscriptSource`/`TranscriptSegment`
+rather than audio), the `RiskProfile` re-export, the replay path as a first-class fake,
+and the `server/` gateway skeleton (`SessionRegistry`, WebSocket fan-out, fakes).
+
+**DEFERRED — superseded by Twilio Real-Time Transcription:** `AudioFrame`, the PCM16
+resample helper, RMS-based silence detection (`audio.silent`), `canSpeak`/`canHangup` as
+transport capability booleans, and the audio-transport conformance suite. None of these
+are exercised when the transcript arrives as text from Twilio's callbacks and there is no
+in-process audio pipeline.
+
+The specs under `specs/` still describe the full original intent (an audio-normalising
+transport layer); this note says what is actually being built against `tasks.md` below.
+
 ## Why
 
 Four tracks need to start at the same hour, and three of them (mobile UI, detection,

@@ -1,3 +1,16 @@
+## Scope as of now
+
+The fallback ladder (Twilio → LiveKit → replay) and the pre-flight check are unaffected
+by the scope decisions and stay fully in scope. Checkpoint 3 (task 3.1) originally names
+caller reputation, a confirmed intervention, and a produced case file as part of "the
+full product" — caller reputation and the case file are both deferred (see their own
+Scope as of now notes), and intervention is reduced to (at most) an in-call spoken
+warning, itself uncertain (see `add-fraud-intervention`'s Scope as of now). Checkpoint
+3's actual content for this build is: a Twilio call, real-time transcription arriving as
+transcript turns, a live risk profile, and the assistant answering — see `tasks.md` task
+3.1 for the reconciled wording. Checkpoints 1 and 2, the ladder, pre-flight, the demo
+script and documentation tasks are unaffected.
+
 ## Why
 
 Four tracks building against fakes will each be "done" and the system will not work. Every

@@ -1,3 +1,13 @@
+## Scope as of now
+
+**[DEFERRED, not cancelled]** The post-call case file is explicitly on the deferred list
+for the current build, alongside SMS, Twilio Verify, Telegram, hangup, and caller
+reputation. The event stream this change folds (transcript turns, risk assessments,
+signals with quotes) is being produced by the in-scope tracks regardless, so nothing here
+is blocked structurally — it is simply not being built yet. The specs under `specs/` and
+the tasks below still describe the full original intent — see `tasks.md` for the
+per-task deferral tags.
+
 ## Why
 
 The live risk score protects the person on the call. It does nothing for what happens

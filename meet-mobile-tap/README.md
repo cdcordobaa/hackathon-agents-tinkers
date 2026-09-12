@@ -88,6 +88,25 @@ joins as the person being protected; the browser defaults to the other caller.
 The native configuration permits HTTP for this trusted-network demo. Use HTTPS and remove
 the Android `plugins/with-demo-cleartext.js` plugin registration before shipping a production app.
 
+### Existing session and assistant flow
+
+Both mobile implementations are preserved while their protocols remain separate:
+
+| Mobile setting | App | Backend |
+| --- | --- | --- |
+| `EXPO_PUBLIC_CALL_EXPERIENCE=livekit` (default) | `LiveCallApp.tsx`: room audio and monitor snapshots | `cd agent && npm run dev` |
+| `EXPO_PUBLIC_CALL_EXPERIENCE=session` | `SessionApp.tsx`: session events, replay, browser-ingested segments, assistant UI | `cd server && npm run dev` |
+
+Set the experience in `mobile/.env` and restart Metro with `--clear`. Both backends
+default to port 8787, so run the backend for the selected experience, or set distinct
+ports and the corresponding `EXPO_PUBLIC_GATEWAY_URL`. The session flow's browser client
+is in `web/`; the LiveKit snapshot demo's browser is served directly by `agent/`.
+The session flow still needs its configured model/assistant services.
+
+Provider credentials belong in ignored `agent/.env`. The server and the mobile/web
+token commands read that file; optional app-local `.env` overrides remain supported.
+Generated room tokens are local artifacts and are never committed.
+
 ## Verification
 
 ```bash

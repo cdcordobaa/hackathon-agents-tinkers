@@ -10,23 +10,31 @@
 
 ## 2. Server-side audio
 
-- [ ] 2.1 Add the LiveKit server SDK and an agent worker that joins a room by name;
-      verify the worker appears as a participant in the LiveKit dashboard
-- [ ] 2.2 Subscribe to remote audio tracks and log per-track RMS; verify a non-zero RMS
-      is logged while someone speaks and zero while nobody does
-- [ ] 2.3 Convert subscribed audio to PCM16 mono 24 kHz; verify a recorded sample plays
-      back intelligibly and the format assertion in the conformance suite passes
+- [ ] 2.1 [DEFERRED - no transcript source over LiveKit in this scope, see proposal.md
+      Scope as of now] Add the LiveKit server SDK and an agent worker that joins a room
+      by name; verify the worker appears as a participant in the LiveKit dashboard
+- [ ] 2.2 [DEFERRED - see 2.1] Subscribe to remote audio tracks and log per-track RMS;
+      verify a non-zero RMS is logged while someone speaks and zero while nobody does
+- [ ] 2.3 [DEFERRED - see 2.1] Convert subscribed audio to PCM16 mono 24 kHz; verify a
+      recorded sample plays back intelligibly and the format assertion in the conformance
+      suite passes
 
 ## 3. LiveKitTransport
 
-- [ ] 3.1 Implement `LiveKitTransport` against `CallTransport`; verify the shared
-      conformance suite passes
+- [ ] 3.1 [DEFERRED - `CallTransport` no longer exists, superseded by `TranscriptSource`;
+      see add-call-session-contracts' Scope as of now] Implement `LiveKitTransport`
+      against `CallTransport`; verify the shared conformance suite passes
 - [ ] 3.2 Map participants to speaker ids and roles from the issued identity; verify a
-      test covers subject, counterparty, and a late joiner
-- [ ] 3.3 Declare `canSpeak: true` / `canHangup: false` and implement speaking by
-      publishing a track; verify a spoken phrase is audible to a second participant
-- [ ] 3.4 Implement stall detection distinct from silence: no packets for the timeout is
-      a transport error, not silent frames; verify by killing the room mid-session
+      test covers subject, counterparty, and a late joiner — still useful for the level
+      meter and any future LiveKit transcript source, independent of 3.1's deferral
+- [ ] 3.3 [DEFERRED - no intervention wired to a transport with no live assessment; see
+      proposal.md Scope as of now] Declare `canSpeak: true` / `canHangup: false` and
+      implement speaking by publishing a track; verify a spoken phrase is audible to a
+      second participant
+- [ ] 3.4 [DEFERRED - see 2.1; stall detection on a track nothing consumes is moot until
+      the server-side subscription exists] Implement stall detection distinct from
+      silence: no packets for the timeout is a transport error, not silent frames; verify
+      by killing the room mid-session
 
 ## 4. Token endpoint
 
@@ -41,7 +49,10 @@
 
 ## 5. End-to-end proof
 
-- [ ] 5.1 Run a full session on the LiveKit transport with the fake analyzer; verify
-      transcript turns arrive on the gateway WebSocket
+- [ ] 5.1 [DEFERRED - no transcript source over LiveKit in this scope, see proposal.md
+      Scope as of now] Run a full session on the LiveKit transport with the fake
+      analyzer; verify transcript turns arrive on the gateway WebSocket
 - [ ] 5.2 Confirm on a physical device, not only the iOS Simulator — the Simulator
-      borrows the Mac's microphone and hides device-level capture problems
+      borrows the Mac's microphone and hides device-level capture problems. In current
+      scope this verifies the call-only rung (join, level meter, gateway-issued token),
+      not transcript delivery

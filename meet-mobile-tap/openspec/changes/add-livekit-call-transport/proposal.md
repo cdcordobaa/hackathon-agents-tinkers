@@ -1,3 +1,26 @@
+## Scope as of now
+
+LiveKit is confirmed **IN** scope, but only as a call-only rung: `shared/src/transcript-source.ts`
+(already on disk) declares `kind: 'livekit'` in the `TranscriptSourceKind` union "for
+completeness" but states plainly it "has no implementation in this scope — LiveKit is
+call-only and emits no transcript." Detection in the current build runs only on the
+Twilio real-time-transcription path.
+
+**Still in scope:** joining a LiveKit room from the phone, the per-participant level
+meter (proves audio moves — this is also the demo's visible fallback rung), and the
+token endpoint on the gateway (replacing the baked-in `EXPO_PUBLIC_LIVEKIT_TOKEN`, which
+is a security-hygiene fix independent of whether transcription runs over this path).
+
+**[DEFERRED — no transcript source over LiveKit in this scope]** The server-side LiveKit
+agent worker that subscribes to remote audio tracks and emits normalised `AudioFrame`s,
+`LiveKitTransport` as an implementation of `CallTransport` (which no longer exists — see
+`add-call-session-contracts`'s scope note), its capability declarations
+(`canSpeak`/`canHangup`), and speaking-by-publishing-a-track. Reviving these is what a
+future "live detection over LiveKit" change would need; nothing here blocks it.
+
+The specs below still describe the full original intent (LiveKit as a fully analysed
+call path) — see `tasks.md` for the per-task deferral tags.
+
 ## Why
 
 A LiveKit room is WebRTC, so two clients in a room *is* a real call — which makes it the

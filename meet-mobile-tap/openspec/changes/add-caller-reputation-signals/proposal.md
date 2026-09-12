@@ -1,3 +1,13 @@
+## Scope as of now
+
+**[DEFERRED, not cancelled]** Caller reputation / Twilio Lookup is explicitly out of
+scope for the current build (it is on the deferred list alongside SMS, Twilio Verify,
+Telegram, hangup, and the post-call case file). Nothing in this change should be started
+before those higher-priority tracks (T1 contract+gateway, T2 Twilio real-time
+transcription, T3 mobile CopilotKit HUD) are working end to end. The specs under
+`specs/` and the tasks below still describe the full original intent, so the work is
+ready to pick up when there is time — see `tasks.md` for the per-task deferral tags.
+
 ## Why
 
 The transcript-based analyzer cannot say anything until someone speaks. By then the call is

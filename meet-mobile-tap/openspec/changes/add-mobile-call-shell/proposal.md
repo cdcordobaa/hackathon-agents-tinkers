@@ -1,3 +1,22 @@
+## Scope as of now
+
+This proposal is largely unaffected by the current scope decisions — the risk HUD, live
+transcript, consent step, transport selection and degraded states are exactly what "Live
+risk HUD on the phone" in the current scope means. Two adjustments:
+
+- `audio.silent` (a server-side RMS-based event) is deferred along with the rest of the
+  audio pipeline — see `add-call-session-contracts`' Scope as of now. Its degraded-state
+  slot is filled by `transcript.degraded` (already in `shared/src/events.ts`), which
+  reports Twilio's transcription callback going quiet or degraded for a leg. The
+  client-side per-participant level meter itself (`useTrackVolume`) is unaffected and
+  stays exactly as specified — it is local UI, not the deferred server event.
+- The post-call summary's "matches the case file" checks and its link to the full case
+  file (section 6) are blocked on `add-post-call-case-file`, which is deferred — the
+  summary can still be built from session events directly.
+
+The specs below still describe the full original intent — see `tasks.md` for the
+per-task tags.
+
 ## Why
 
 `mobile/App.tsx` is a call screen: join, mute, and a live level meter per participant. It

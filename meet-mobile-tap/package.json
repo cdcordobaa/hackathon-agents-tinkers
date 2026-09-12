@@ -1,0 +1,9 @@
+{
+  "name": "secureguia",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Workspace root for SecureGuIA — not a build system. Each of agent/, shared/, server/, mobile/ manages its own dependencies.",
+  "scripts": {
+    "status": "node scripts/status.mjs"
+  }
+}
