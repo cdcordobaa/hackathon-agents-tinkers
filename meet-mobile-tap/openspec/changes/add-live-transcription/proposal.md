@@ -1,3 +1,22 @@
+## Scope as of now
+
+**[DEFERRED, not cancelled — superseded by Twilio Real-Time Transcription]** Our own
+speech-to-text ("our own STT over `<Start><Stream>`") is on the deferred list. The
+current transcript source is Twilio's own real-time transcription callback
+(`<Start><Transcription>` posting speaker-labelled segments) — see `add-twilio-call-transport`'s
+scope note. `shared/src/transcript-source.ts` (already on disk) is explicit that "there
+is no raw audio, no mu-law decode and no in-process STT anywhere behind this interface"
+in the current scope, and that `kind: 'livekit'` "has no transcript source in this pass —
+LiveKit stays a call-only rung". That means this entire change — porting the starter
+kit's `TranscriptionSession`, feeding it `AudioFrame`s, running one STT session per
+speaker — has no current wiring point on either transport: Twilio bypasses it by
+transcribing itself, and LiveKit has no transcript path to feed it in this scope.
+
+The specs below and the tasks in `tasks.md` still describe the full original intent —
+this is the change to revisit if Twilio's built-in transcription proves insufficient, or
+if LiveKit later needs live detection of its own. Every task is marked deferred rather
+than removed for that reason.
+
 ## Why
 
 `RollingTranscript` is written, tested and fed by a replay script. Nothing connects real

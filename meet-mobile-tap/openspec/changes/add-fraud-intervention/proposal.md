@@ -1,3 +1,24 @@
+## Scope as of now
+
+Three of the four intervention types this proposal defines are individually on the
+deferred list: **SMS** (to the user or a trusted contact), **Twilio Verify**
+(step-up identity), and **ending the call** (hangup). Only the **in-call spoken
+warning** (via `<Say>`/`<Play>`, independent of transcription) is not on the deferred
+list — see `add-twilio-call-transport`'s Scope as of now, which keeps `speak` in scope
+while deferring `hangup`.
+
+This leaves the propose/confirm policy framework itself — section 1 (policy),
+section 2 (proposal and confirmation), the spoken-warning half of section 3, and
+pre-arming (section 4) — **uncertain rather than deferred**: nothing in the scope
+decisions explicitly says the intervention *framework* is in or out for this build, only
+that three of its four mechanisms are. Confirm with whoever owns this track before
+starting; if only the spoken warning ships, the framework may be more than the moment
+needs. Section 5 (audit) is blocked on 5.2, which feeds the case file — deferred
+separately.
+
+The specs below still describe the full original intent (all four intervention types) —
+see `tasks.md` for the per-task tags.
+
 ## Why
 
 A risk score that only informs is a product that watches someone get defrauded and takes

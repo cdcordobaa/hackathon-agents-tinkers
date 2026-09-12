@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SecureGuIA — Browser Rung (T5)</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <h1>SecureGuIA <span class="dim">— browser rung</span></h1>
+        <div class="badges">
+          <span id="room-state" class="badge badge-idle">room: idle</span>
+          <span id="session-state" class="badge badge-idle">session: idle</span>
+        </div>
+      </header>
+
+      <section id="setup" class="panel">
+        <h2>Connect</h2>
+        <div class="grid">
+          <label>LiveKit URL
+            <input id="lk-url" type="text" placeholder="wss://your-project.livekit.cloud" />
+          </label>
+          <label>LiveKit token
+            <input id="lk-token" type="text" placeholder="paste a token minted for this room" />
+          </label>
+          <label>Room name
+            <input id="lk-room" type="text" placeholder="demo" />
+          </label>
+          <label>Identity
+            <input id="lk-identity" type="text" placeholder="browser" />
+          </label>
+          <label>Gateway URL
+            <input id="gw-url" type="text" placeholder="http://localhost:8787" />
+          </label>
+          <label>Token-server URL
+            <input id="ts-url" type="text" placeholder="http://localhost:8788" />
+          </label>
+        </div>
+        <div class="actions">
+          <button id="join-btn">Join room</button>
+          <button id="leave-btn" disabled>Leave</button>
+          <button id="consent-btn" disabled>Grant consent</button>
+        </div>
+        <p id="setup-error" class="error" hidden></p>
+      </section>
+
+      <section class="columns">
+        <div class="col">
+          <div class="panel">
+            <h2>Participants</h2>
+            <div id="participants"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Segments reaching the gateway</h2>
+            <div id="ingest-stats" class="stats">
+              <div><span class="stat-label">posted</span><span id="stat-posted" class="stat-value">0</span></div>
+              <div><span class="stat-label">failed attempts</span><span id="stat-failed" class="stat-value">0</span></div>
+              <div><span class="stat-label">pending</span><span id="stat-pending" class="stat-value">0</span></div>
+            </div>
+            <p id="stat-error" class="error" hidden></p>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="panel transcript-panel">
+            <h2>Transcript</h2>
+            <div id="transcript" class="transcript"></div>
+          </div>
+        </div>
+
+        <div class="col">
+          <div class="panel script-panel">
+            <h2>Caller script <span class="dim">(bank-scam fixture)</span></h2>
+            <div id="script-pane" class="script"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

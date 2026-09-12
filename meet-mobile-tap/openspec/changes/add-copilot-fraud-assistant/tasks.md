@@ -1,14 +1,29 @@
-## 1. Dependency spike, time-boxed
+## 1. Dependency spike, time-boxed — [DEFERRED, superseded by the headless decision]
 
-- [ ] 1.1 Add `@copilotkit/react-native` and its peer native modules (reanimated,
+The spike below (native peer modules, `expo prebuild`, the web-surface exit) was written
+against `@copilotkit/react-native`'s full native build. The scope decision uses
+`@copilotkit/react-native/headless` instead, which has no native peer deps — see
+proposal.md's Scope as of now. Replaced by task 1.4/1.5 below; 1.1-1.3 are kept for
+context, not to be executed.
+
+- [ ] 1.1 [DEFERRED - superseded by the headless decision, see proposal.md Scope as of
+      now] Add `@copilotkit/react-native` and its peer native modules (reanimated,
       gesture-handler, bottom-sheet, streamdown, expo-file-system, expo-document-picker);
       run `npx expo prebuild` and verify `ios/*.xcworkspace` exists — per CLAUDE.md,
       `prebuild` exits 0 even when `pod install` failed
-- [ ] 1.2 Build and launch on a device with LiveKit still working; verify a room still
-      joins and the level meter still moves after the new pods are installed
-- [ ] 1.3 If the time box is exceeded, take the exit: ship the assistant as a CopilotKit
-      web surface on a second screen and keep the HUD on the phone; verify the decision
-      and its reason are recorded in CLAUDE.md
+- [ ] 1.2 [DEFERRED - see 1.1] Build and launch on a device with LiveKit still working;
+      verify a room still joins and the level meter still moves after the new pods are
+      installed
+- [ ] 1.3 [DEFERRED - see 1.1; no exit needed if 1.4 confirms headless has no native
+      footprint] If the time box is exceeded, take the exit: ship the assistant as a
+      CopilotKit web surface on a second screen and keep the HUD on the phone; verify the
+      decision and its reason are recorded in CLAUDE.md
+- [ ] 1.4 [NEW — replaces 1.1] Add `@copilotkit/react-native/headless` to `mobile/`;
+      verify it installs with no new native peer dependency (no new entry needed in
+      `ios/Podfile.lock`) and confirm `npx expo prebuild` was not required
+- [ ] 1.5 [NEW — replaces 1.2] Build and launch on a device with LiveKit still working;
+      verify a room still joins and the level meter still moves, proving headless carries
+      no native footprint of its own
 
 ## 2. Runtime endpoint
 
@@ -35,19 +50,26 @@
 
 - [ ] 4.1 Implement read-only actions — explain a signal, what did they just say — with no
       confirmation step; verify both answer correctly from context
-- [ ] 4.2 Implement world-changing actions — end call, verify caller, alert trusted contact
-      — each behind a confirmation naming the consequence and the recipient; verify nothing
-      happens until confirmed
-- [ ] 4.3 Verify declining an action produces no effect and no unprompted re-proposal
-- [ ] 4.4 Render unavailable actions as disabled with a reason from transport capabilities
-      and intervention availability; verify against a transport declaring `canHangup: false`
+- [ ] 4.2 [DEFERRED - all three actions are individually deferred: end call (hangup
+      deferred), verify caller (Twilio Verify deferred), alert trusted contact (SMS
+      deferred); see proposal.md Scope as of now] Implement world-changing actions — end
+      call, verify caller, alert trusted contact — each behind a confirmation naming the
+      consequence and the recipient; verify nothing happens until confirmed
+- [ ] 4.3 [UNCERTAIN — keep if any world-changing or degraded-availability action ships;
+      otherwise moot until 4.2 is picked back up] Verify declining an action produces no
+      effect and no unprompted re-proposal
+- [ ] 4.4 Render unavailable actions as disabled with a reason; verify the three deferred
+      actions (end call, verify caller, alert trusted contact) render this way today, not
+      only against a transport declaring a capability false
 
 ## 5. Generative UI
 
 - [ ] 5.1 Render the risk assessment as a component from a tool call; verify band, score
       and signals with quotes match the current assessment exactly
-- [ ] 5.2 Render a proposed intervention as an interactive component; verify confirm and
-      decline both route through the same confirmation path as task 4.2
+- [ ] 5.2 [BLOCKED ON 4.2, which is deferred — nothing to render until an intervention
+      action ships, see add-fraud-intervention's Scope as of now] Render a proposed
+      intervention as an interactive component; verify confirm and decline both route
+      through the same confirmation path as task 4.2
 - [ ] 5.3 Verify a rendered component never shows a signal absent from the assessment
 
 ## 6. Fit with the call

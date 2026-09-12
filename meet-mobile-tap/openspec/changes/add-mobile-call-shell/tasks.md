@@ -43,16 +43,24 @@
 
 - [ ] 5.1 Keep a per-participant level meter visible for the whole call; verify it is
       present on every transport, per CLAUDE.md's rule that silence looks like success
-- [ ] 5.2 Surface `audio.silent`, transcription-degraded and connection-lost states; verify
-      each with a fake gateway that emits them
+- [ ] 5.2 [SHAPE SUPERSEDED — `audio.silent` deferred, superseded by `transcript.degraded`
+      which already exists in `shared/src/events.ts`; see add-call-session-contracts'
+      Scope as of now] Surface `audio.silent`, transcription-degraded and connection-lost
+      states; verify each with a fake gateway that emits them — reduces to:
+      `transcript.degraded` and connection-lost
 - [ ] 5.3 Verify no degraded state is shown during a healthy call — a false alarm here
       trains the user to ignore the real one
 
 ## 6. Summary
 
-- [ ] 6.1 Build the post-call summary from session events — highest risk, signals,
-      interventions; verify it matches the case file for the same session
-- [ ] 6.2 Link to the full case file; verify the link resolves for a completed session
+- [ ] 6.1 [PARTIALLY BLOCKED — "matches the case file" can't be verified while the case
+      file is deferred, see add-post-call-case-file's Scope as of now] Build the
+      post-call summary from session events — highest risk, signals, interventions;
+      verify it matches the case file for the same session — reduces to: verify it
+      reflects the session's own events directly
+- [ ] 6.2 [DEFERRED - post-call case file deferred, see add-post-call-case-file's Scope
+      as of now] Link to the full case file; verify the link resolves for a completed
+      session
 
 ## 7. Device check
 

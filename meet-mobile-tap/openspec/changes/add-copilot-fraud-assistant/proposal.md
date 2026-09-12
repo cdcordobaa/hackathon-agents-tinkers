@@ -1,3 +1,29 @@
+## Scope as of now
+
+**BREAKING (to this proposal's own risk assessment).** This proposal's biggest risk was
+the native-module footprint of `@copilotkit/react-native` pulling in `react-native-reanimated`,
+`react-native-gesture-handler`, `@gorhom/bottom-sheet`, `react-native-streamdown`,
+`expo-file-system` and `expo-document-picker` alongside LiveKit's already-installed WebRTC
+pods — hence the time-boxed spike in task 1. The scope decision resolves this directly:
+**use `@copilotkit/react-native/headless`**, which has no native peer dependencies, so
+there is no `expo prebuild` and no `pod install` for this change at all, and no risk to
+the LiveKit iOS build. The dependency spike (section 1) and its native-conflict framing
+in `design.md` are superseded.
+
+**Still in scope, unaffected:** the runtime endpoint (section 2), grounding rules
+(section 3, including replaying prompt-injection fixtures), read-only actions and
+generative UI for the risk card/signals (sections 4's read-only half and 5), and fit
+with the call (section 6).
+
+**[DEFERRED — each superseded by an item on the deferred list]** Of the four
+world-changing actions in task 4.2: "end the call" (hangup deferred), "verify the
+caller's identity" (Twilio Verify deferred), and "alert a trusted contact" (SMS
+deferred) are all deferred along with the mechanisms they depend on. Only "explain a
+signal" and "what did they just say" (both read-only, task 4.1) remain buildable now.
+
+The specs below still describe the full original intent — see `tasks.md` for the
+per-task reconciliation.
+
 ## Why
 
 A risk score tells someone they are in trouble. It does not answer "wait, is my bank

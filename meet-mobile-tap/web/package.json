@@ -1,0 +1,24 @@
+{
+  "name": "secureguia-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser rung (T5): join a LiveKit room from a tab, transcribe every participant's track in-browser, POST TranscriptSegments to the gateway. No Twilio, no phone number, no tunnel.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "token": "node scripts/mint-token.mjs",
+    "token-server": "node --env-file-if-exists=.env token-server/server.mjs"
+  },
+  "dependencies": {
+    "livekit-client": "^2.22.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "livekit-server-sdk": "^2.19.0",
+    "typescript": "^5.7.0",
+    "vite": "^7.0.2"
+  }
+}

@@ -1,7 +1,10 @@
 ## 1. Checkpoint 1 — audio to a score (end of day one)
 
-- [ ] 1.1 Run replay transport → real transcription → real analyzer → gateway → phone
-      display in one session; verify a rising score appears on a device
+- [ ] 1.1 [SHAPE SUPERSEDED — "real transcription" step no longer applies; the replay
+      `TranscriptSource` emits the fixture's text directly, with no STT in between, see
+      add-live-transcription's Scope as of now] Run replay transport → real transcription
+      → real analyzer → gateway → phone display in one session; verify a rising score
+      appears on a device
 - [ ] 1.2 Pair the checkpoint across two tracks and record every seam mismatch found;
       verify each is fixed or ticketed before tracks resume
 - [ ] 1.3 Verify the event protocol survives a reconnect mid-session with no gap in the
@@ -9,17 +12,29 @@
 
 ## 2. Checkpoint 2 — a real call (mid day two)
 
-- [ ] 2.1 Replace replay with the LiveKit transport in the same slice, on a physical
-      device; verify the level meter moves and transcript turns arrive
-- [ ] 2.2 Verify silence detection fires when the microphone is muted and clears when
-      unmuted — per CLAUDE.md this is the failure that looks like success
+- [ ] 2.1 [SHAPE SUPERSEDED — "transcript turns arrive" does not apply to LiveKit in this
+      scope; LiveKit is call-only, see add-livekit-call-transport's Scope as of now]
+      Replace replay with the LiveKit transport in the same slice, on a physical device;
+      verify the level meter moves and transcript turns arrive — reduces to: verify the
+      level meter moves; the risk score/transcript in this checkpoint continue to come
+      from the replay or Twilio side of the same slice
+- [ ] 2.2 [SHAPE SUPERSEDED — server-side `audio.silent` detection deferred, see
+      add-call-session-contracts' Scope as of now; the client-side level meter itself is
+      unaffected and is exactly what CLAUDE.md's rule is about] Verify silence detection
+      fires when the microphone is muted and clears when unmuted — per CLAUDE.md this is
+      the failure that looks like success — reduces to: verify the mobile level meter
+      (`useTrackVolume`) drops to zero on mute and recovers on unmute
 - [ ] 2.3 Confirm on a physical device, not the Simulator, which borrows the Mac's
       microphone and hides device-level capture problems
 
 ## 3. Checkpoint 3 — the full product (before rehearsal)
 
-- [ ] 3.1 Run a Twilio call through the whole system with caller reputation, an
-      intervention proposed and confirmed, and a case file produced; verify each stage
+- [ ] 3.1 [UPDATED SCOPE — caller reputation and case file deferred, intervention
+      reduced/uncertain; see the respective changes' Scope as of now notes] Run a Twilio
+      call through the whole system with real-time transcription arriving as transcript
+      turns and a live risk profile on the phone; if an in-call spoken warning has
+      landed (add-fraud-intervention), include it proposed and confirmed; verify each
+      stage that is actually in scope
 - [ ] 3.2 Verify the assistant answers a question about the live call during the same
       session
 - [ ] 3.3 Record what is not working and decide which rung the demo leads on; verify the
@@ -56,9 +71,11 @@
 
 ## 7. Documentation
 
-- [ ] 7.1 Rewrite CLAUDE.md's Decision section to record both transports behind one adapter
-      and the reversal of the Twilio rejection, with its date and reason; verify it is
-      written only after a real Twilio call has reached the pipeline
+- [ ] 7.1 [NOTE — "one adapter" is now `TranscriptSource`, not `CallTransport`; Twilio
+      implements it, LiveKit is call-only, see add-call-session-contracts' Scope as of
+      now] Rewrite CLAUDE.md's Decision section to record both transports behind one
+      adapter and the reversal of the Twilio rejection, with its date and reason; verify
+      it is written only after a real Twilio call has reached the pipeline
 - [ ] 7.2 Update CLAUDE.md's Status section so every unverified path is marked unverified;
       verify no claim in the document is untested
 - [ ] 7.3 Update README.md's run instructions for the gateway, the token endpoint and the

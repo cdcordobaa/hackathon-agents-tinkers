@@ -1,3 +1,10 @@
+## Scope as of now
+
+Unaffected by the current scope decisions. This track (assigned to an outside Codex
+session per the fixtures+eval track) runs entirely against `agent/`'s replay pipeline and
+never needs a microphone, a LiveKit account or a Twilio number — nothing here depends on
+how a call reaches the transcript. Proceeds as written; `tasks.md` is unchanged.
+
 ## Why
 
 The analyzer has never made a real model call. CLAUDE.md is explicit: every test uses a
