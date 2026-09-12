@@ -94,6 +94,23 @@ test("a final turn from a speaker clears their degraded flag", () => {
   assert.equal(state.degraded["counterparty"], undefined);
 });
 
+test("a full backlog replay after reconnect does not duplicate already-seen turns", () => {
+  let state = initialGatewayState();
+  state = applyEvent(state, turnEvent(1, "sub", "hello"));
+  state = applyEvent(state, turnEvent(2, "counterparty", "hi"));
+  // the gateway replays the whole log again on reconnect (call-session spec:
+  // "a late subscriber is not left blind") — seq 1 and 2 arrive again before
+  // anything new does.
+  state = applyEvent(state, turnEvent(1, "sub", "hello"));
+  state = applyEvent(state, turnEvent(2, "counterparty", "hi"));
+  state = applyEvent(state, turnEvent(3, "sub", "new turn"));
+  assert.deepEqual(
+    state.turns.map((t) => t.text),
+    ["hello", "hi", "new turn"],
+  );
+  assert.equal(state.backlogGap, false);
+});
+
 test("an unrecognised future event type is ignored but still advances lastSeq", () => {
   let state = initialGatewayState();
   const future = { type: "something.new", sessionId: "s1", seq: 1, atMs: 0 } as unknown as SessionEvent;

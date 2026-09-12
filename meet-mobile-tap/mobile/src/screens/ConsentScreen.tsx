@@ -1,20 +1,24 @@
 /**
- * The one screen every path to a running call must pass through. Declining
- * ends the session outright (GatewaySessionClient.declineConsent both sends
- * consent.declined and closes the socket) rather than leaving it sitting in
- * awaiting-consent — there is no path from here back to a connected call
- * without going through Continue again from scratch.
+ * The one screen every path to a running call must pass through. Buttons
+ * stay disabled until `ready` (the gateway WebSocket is open) — sending
+ * consent.granted/declined any earlier would be silently dropped by
+ * GatewaySessionClient.send, which only transmits on an open socket.
+ *
+ * Declining ends the session outright (GatewaySessionClient.declineConsent
+ * both sends consent.declined and closes the socket) rather than leaving it
+ * sitting in awaiting-consent — there is no path from here back to a
+ * connected call without going through Continue again from scratch.
  */
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { C, styles } from "../styles";
 
 export function ConsentScreen({
-  granting,
+  ready,
   error,
   onGrant,
   onDecline,
 }: {
-  granting: boolean;
+  ready: boolean;
   error: string | undefined;
   onGrant: () => void;
   onDecline: () => void;
@@ -42,14 +46,17 @@ export function ConsentScreen({
         </View>
       ) : null}
 
-      <Pressable style={[styles.primary, granting && styles.primaryDisabled]} onPress={onGrant} disabled={granting}>
-        {granting ? (
-          <ActivityIndicator color="#06282B" />
-        ) : (
+      <Pressable style={[styles.primary, !ready && styles.primaryDisabled]} onPress={onGrant} disabled={!ready}>
+        {ready ? (
           <Text style={styles.primaryLabel}>I agree — start the call</Text>
+        ) : (
+          <View style={styles.row}>
+            <ActivityIndicator color="#06282B" />
+            <Text style={styles.primaryLabel}>Connecting to session…</Text>
+          </View>
         )}
       </Pressable>
-      <Pressable style={styles.secondary} onPress={onDecline} disabled={granting}>
+      <Pressable style={styles.secondary} onPress={onDecline}>
         <Text style={styles.secondaryLabel}>Decline — don't start</Text>
       </Pressable>
     </ScrollView>

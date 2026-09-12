@@ -19,8 +19,9 @@
 // otherwise 100% inline CSS/JS. No CDN, no external fetch, works offline.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, closeSync, openSync, unlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -56,27 +57,55 @@ function parseArgs(argv) {
 }
 
 function runStatus() {
-  let stdout;
+  // status.mjs writes its JSON with console.log and then calls process.exit(0)
+  // on the very next line. When stdout is a *pipe* (which is what
+  // execFileSync's captured `stdout` option gives you), that write is
+  // asynchronous — process.exit(0) can fire before the write flushes, and the
+  // output gets silently truncated (observed in practice: cut off at exactly
+  // 8192 bytes, Node's pipe highWaterMark). Redirecting the child's stdout
+  // straight to a real file — the same thing `node status.mjs --json > f`
+  // does at the shell — makes the write synchronous instead, so nothing is
+  // lost. Piping through execFileSync's buffer looked fine on a small report
+  // and only broke once the JSON grew past one page; a temp file sidesteps
+  // the whole failure mode rather than trusting a size threshold to hold.
+  const tmpFile = join(tmpdir(), `secureguia-status-${process.pid}-${Date.now()}.json`);
+  const fd = openSync(tmpFile, "w");
   try {
-    stdout = execFileSync("node", [join(REPO_ROOT, "scripts", "status.mjs"), "--json"], {
+    execFileSync("node", [join(REPO_ROOT, "scripts", "status.mjs"), "--json"], {
       cwd: REPO_ROOT,
-      encoding: "utf8",
-      maxBuffer: 20 * 1024 * 1024,
+      stdio: ["ignore", fd, "inherit"],
       timeout: 40_000,
     });
   } catch (err) {
     console.error("dashboard: failed to run scripts/status.mjs --json");
-    if (err.stdout) console.error("--- stdout ---\n" + err.stdout);
-    if (err.stderr) console.error("--- stderr ---\n" + err.stderr);
     console.error(String(err.message || err));
+    closeSync(fd);
+    safeUnlink(tmpFile);
     process.exit(1);
   }
+  closeSync(fd);
+
+  let text;
   try {
-    return JSON.parse(stdout);
+    text = readFileSync(tmpFile, "utf8");
+  } finally {
+    safeUnlink(tmpFile);
+  }
+  try {
+    return JSON.parse(text);
   } catch (err) {
     console.error("dashboard: status.mjs --json did not print valid JSON");
-    console.error(stdout.slice(0, 2000));
+    console.error(`(captured ${text.length} bytes; first 500 shown)`);
+    console.error(text.slice(0, 500));
     process.exit(1);
+  }
+}
+
+function safeUnlink(path) {
+  try {
+    unlinkSync(path);
+  } catch {
+    // best-effort cleanup only
   }
 }
 

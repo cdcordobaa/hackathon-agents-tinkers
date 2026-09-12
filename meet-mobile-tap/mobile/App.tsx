@@ -1,25 +1,23 @@
 /**
  * setup -> consent -> call -> summary.
  *
- * The gateway socket only opens once the user leaves setup (start() is
- * called from the consent screen's mount, see below) and consent is what
- * actually starts the session on the wire — session.start fires on first
- * connect, but the session itself stays in `awaiting-consent` server-side
- * until consent.granted arrives (add-call-session-contracts). No path from
- * `screen` back to `"call"` skips the consent screen: `call` is only ever
- * reached by ConsentScreen's onGrant.
+ * Leaving setup creates the session (`POST /session`, then its WebSocket —
+ * see gateway/client.ts) and moves to consent; ConsentScreen's buttons stay
+ * disabled until that connection is confirmed open, so `grantConsent`/
+ * `declineConsent` are never sent into a socket that isn't there yet to
+ * silently drop them. No path from `screen` back to `"call"` skips the
+ * consent screen: `call` is only ever reached by ConsentScreen's onGrant.
  *
  * CopilotKitProvider wraps everything so the assistant's registered tools
  * and agent state are ready the moment CallScreen mounts, and it costs
  * nothing while unused on the other screens.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { SafeAreaView } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { CopilotKitProvider } from "@copilotkit/react-native/headless";
 import type { TranscriptSourceKind } from "../shared/src";
 import { RUNTIME_URL } from "./src/config";
-import { createSessionId } from "./src/gateway/session-id";
 import { useGatewaySession } from "./src/gateway/useGatewaySession";
 import { SetupScreen } from "./src/screens/SetupScreen";
 import { ConsentScreen } from "./src/screens/ConsentScreen";
@@ -32,23 +30,20 @@ type Screen = "setup" | "consent" | "call" | "summary";
 export default function App() {
   const [screen, setScreen] = useState<Screen>("setup");
   const [transport, setTransport] = useState<TranscriptSourceKind>("replay");
-  const [sessionId, setSessionId] = useState(() => createSessionId());
+  // Bumped to force a brand-new GatewaySessionClient — and so a fresh
+  // POST /session — each time the user starts over from setup.
+  const [attempt, setAttempt] = useState(0);
 
-  const gateway = useGatewaySession(sessionId);
-  const [consentError, setConsentError] = useState<string>();
-  const [granting, setGranting] = useState(false);
+  const gateway = useGatewaySession(attempt);
 
   const startAttempt = useCallback(() => {
-    gateway.start(transport);
+    void gateway.start(transport);
     setScreen("consent");
   }, [gateway, transport]);
 
   const grantConsent = useCallback(() => {
-    setGranting(true);
-    setConsentError(undefined);
     gateway.grantConsent();
     setScreen("call");
-    setGranting(false);
   }, [gateway]);
 
   const declineConsent = useCallback(() => {
@@ -63,17 +58,14 @@ export default function App() {
   }, [gateway]);
 
   const startNew = useCallback(() => {
-    setSessionId(createSessionId());
-    setConsentError(undefined);
+    setAttempt((n) => n + 1);
     setScreen("setup");
   }, []);
 
-  // Surface a session-level error (e.g. the gateway rejecting session.start)
-  // on the consent screen, the only place it can still change the outcome.
-  const errorForConsent = useMemo(
-    () => (screen === "consent" ? gateway.state.lastError ?? consentError : undefined),
-    [screen, gateway.state.lastError, consentError],
-  );
+  // The consent screen's buttons are gated on this: sending consent.granted
+  // or consent.declined into a socket that is not open yet would be silently
+  // dropped by GatewaySessionClient.send (see client.ts).
+  const gatewayReady = gateway.state.connection === "open";
 
   return (
     <CopilotKitProvider runtimeUrl={RUNTIME_URL}>
@@ -84,7 +76,12 @@ export default function App() {
         ) : null}
 
         {screen === "consent" ? (
-          <ConsentScreen granting={granting} error={errorForConsent} onGrant={grantConsent} onDecline={declineConsent} />
+          <ConsentScreen
+            ready={gatewayReady}
+            error={gateway.state.lastError}
+            onGrant={grantConsent}
+            onDecline={declineConsent}
+          />
         ) : null}
 
         {screen === "call" ? <CallScreen transport={transport} state={gateway.state} onEndCall={endCall} /> : null}

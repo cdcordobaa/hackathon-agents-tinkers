@@ -1,21 +1,34 @@
 /**
- * The WebSocket half of "phone -> gateway WebSocket -> session".
+ * The client half of "phone -> gateway WebSocket -> session".
  *
- * A plain class, not a hook, so the reconnect state machine is testable
- * without React and the hook (useGatewaySession.ts) is a thin
- * useSyncExternalStore wrapper around it. React Native's global `WebSocket`
- * is used as-is — no polyfill needed on this platform.
+ * Two steps, not one: `POST /session` creates the session and hands back a
+ * gateway-minted id, THEN a WebSocket connects to `/session/:id`. This
+ * build's gateway (server/src/gateway.ts) destroys the socket outright on
+ * upgrade if the id in the path is not already in its registry — a phone
+ * cannot pick its own session id the way an earlier version of this file
+ * assumed. See `start()`.
  *
- * Reconnect: on any close that this client did not request itself, retry
- * with capped exponential backoff. The first connect after `start()` sends
- * `session.start`; every connect after a drop sends `subscribe { sinceSeq }`
- * instead, resuming from the last sequence number seen. Sequence gaps from
- * that resume are detected in reducer.ts, not here — this class only owns
- * the socket lifecycle.
+ * A plain class, not a hook, so the request/reconnect state machine is
+ * testable without React; the hook (useGatewaySession.ts) is a thin
+ * useSyncExternalStore wrapper around it. React Native's global `fetch` and
+ * `WebSocket` are used as-is — no polyfill needed on this platform.
+ *
+ * Reconnect: on any close this client did not request itself, retry with
+ * capped exponential backoff, against the SAME session id (no new POST —
+ * the session already exists server-side). Per the call-session spec ("a
+ * late subscriber is not left blind"), this gateway replays a session's
+ * entire event log from seq 1 on every connection, reconnect included, not
+ * only in response to `subscribe`; reducer.ts's `applyEvent` is what makes
+ * that safe to receive twice (already-seen `seq` is skipped, not re-applied).
+ * `subscribe { sinceSeq }` is still sent on reconnect for forward
+ * compatibility with a gateway that only replays on request, and is a no-op
+ * against today's gateway. Once a `session.state: "ended"` has been seen,
+ * the session is gone from the registry and reconnecting is pointless — the
+ * close is treated as final rather than retried.
  */
 import type { ClientMessage, TranscriptSourceKind } from "../../../shared/src";
-import { buildSessionWsUrl } from "../config";
-import { applyEvent, initialGatewayState, setConnection, type GatewayState } from "./reducer";
+import { GATEWAY_URL, buildSessionWsUrl } from "../config";
+import { applyEvent, initialGatewayState, setConnection, setSessionId, type GatewayState } from "./reducer";
 
 const MAX_BACKOFF_MS = 15_000;
 
@@ -28,8 +41,8 @@ export class GatewaySessionClient {
   private closedByUser = false;
   private transport: TranscriptSourceKind | undefined;
 
-  constructor(sessionId: string) {
-    this.state = initialGatewayState(sessionId);
+  constructor() {
+    this.state = initialGatewayState();
   }
 
   getState(): GatewayState {
@@ -43,10 +56,39 @@ export class GatewaySessionClient {
     };
   }
 
-  /** Opens the socket and starts the session on this transport. Call once. */
-  start(transport: TranscriptSourceKind): void {
+  /** Creates the session on the gateway, then opens its socket. Call once
+   *  per attempt — a fresh GatewaySessionClient is what starting over from
+   *  the setup screen creates, rather than calling this twice on one. */
+  async start(transport: TranscriptSourceKind): Promise<void> {
     this.transport = transport;
     this.closedByUser = false;
+    this.setState(setConnection(this.state, "connecting"));
+
+    let created: { id: string };
+    try {
+      const response = await fetch(`${GATEWAY_URL}/session`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ transport }),
+      });
+      if (!response.ok) throw new Error(`gateway refused to create a session (HTTP ${response.status})`);
+      created = (await response.json()) as { id: string };
+      if (!created || typeof created.id !== "string") throw new Error("gateway returned no session id");
+    } catch (cause) {
+      this.setState({
+        ...setConnection(this.state, "closed"),
+        lastError: cause instanceof Error ? cause.message : String(cause),
+      });
+      return;
+    }
+
+    // The user could decline (or navigate away) during the POST round-trip,
+    // before there was ever a socket to close — without this check, the
+    // connect below would open one anyway, after "decline" already told the
+    // rest of the app the session was over.
+    if (this.closedByUser) return;
+
+    this.setState(setSessionId(this.state, created.id));
     this.connect();
   }
 
@@ -74,9 +116,12 @@ export class GatewaySessionClient {
   }
 
   private connect(): void {
+    const sessionId = this.state.sessionId;
+    if (!sessionId) return; // start() hasn't created the session yet
+
     this.setState(setConnection(this.state, this.state.lastSeq === undefined ? "connecting" : "reconnecting"));
 
-    const ws = new WebSocket(buildSessionWsUrl(this.state.sessionId));
+    const ws = new WebSocket(buildSessionWsUrl(sessionId));
     this.ws = ws;
 
     ws.onopen = () => {
@@ -106,7 +151,7 @@ export class GatewaySessionClient {
     };
 
     ws.onclose = () => {
-      if (this.closedByUser) {
+      if (this.closedByUser || this.state.sessionState === "ended") {
         this.setState(setConnection(this.state, "closed"));
         return;
       }

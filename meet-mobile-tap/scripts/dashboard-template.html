@@ -1,0 +1,732 @@
+<title>SecureGuIA Team Dashboard</title>
+<style>
+  :root {
+    --bg: #f4f5f7;
+    --panel: #ffffff;
+    --panel-border: #dde1e7;
+    --text: #16181d;
+    --text-dim: #5b6270;
+    --text-faint: #8a90a0;
+    --code-bg: #eef0f4;
+    --code-text: #1f2430;
+
+    --pass: #1a7f37;
+    --pass-bg: #e6f6ea;
+    --fail: #c4291d;
+    --fail-bg: #fdecea;
+    --warn: #9a6700;
+    --warn-bg: #fff3d6;
+    --neutral: #55596b;
+    --neutral-bg: #e8e9ee;
+    --accent: #2451c4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1115;
+      --panel: #171a21;
+      --panel-border: #2a2e39;
+      --text: #eceef2;
+      --text-dim: #a6acbb;
+      --text-faint: #767c8c;
+      --code-bg: #10131a;
+      --code-text: #d7dbe4;
+
+      --pass: #4bc26a;
+      --pass-bg: #103820;
+      --fail: #f0655a;
+      --fail-bg: #3a1512;
+      --warn: #e0b04b;
+      --warn-bg: #3a2c05;
+      --neutral: #9aa0b3;
+      --neutral-bg: #23262f;
+      --accent: #6c9bff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-border: #2a2e39;
+    --text: #eceef2;
+    --text-dim: #a6acbb;
+    --text-faint: #767c8c;
+    --code-bg: #10131a;
+    --code-text: #d7dbe4;
+
+    --pass: #4bc26a;
+    --pass-bg: #103820;
+    --fail: #f0655a;
+    --fail-bg: #3a1512;
+    --warn: #e0b04b;
+    --warn-bg: #3a2c05;
+    --neutral: #9aa0b3;
+    --neutral-bg: #23262f;
+    --accent: #6c9bff;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding-inline: 16px;
+    padding-block: 12px 40px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1, h2, h3 { margin: 0; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+  a { color: var(--accent); }
+
+  /* ---------- header / staleness clock ---------- */
+  .top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin-bottom: 10px;
+  }
+  .top h1 {
+    font-size: 20px;
+    letter-spacing: -0.01em;
+  }
+  .top .sub {
+    color: var(--text-dim);
+    font-size: 12.5px;
+  }
+
+  #freshness {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--panel-border);
+    background: var(--panel);
+    margin-bottom: 14px;
+    font-size: 13px;
+  }
+  #freshness .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex: none;
+  }
+  #freshness .label { font-weight: 600; }
+  #freshness .detail { color: var(--text-dim); }
+  #freshness.fresh { border-color: var(--pass); }
+  #freshness.fresh .dot { background: var(--pass); }
+  #freshness.aging { border-color: var(--warn); }
+  #freshness.aging .dot { background: var(--warn); box-shadow: 0 0 0 3px var(--warn-bg); }
+  #freshness.stale { border-color: var(--fail); }
+  #freshness.stale .dot { background: var(--fail); box-shadow: 0 0 0 3px var(--fail-bg); }
+  #freshness .regen {
+    margin-left: auto;
+    color: var(--text-faint);
+    font-size: 11.5px;
+  }
+
+  .warnings {
+    background: var(--fail-bg);
+    border: 1px solid var(--fail);
+    color: var(--fail);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-size: 12.5px;
+  }
+  .warnings ul { margin: 4px 0 0; padding-left: 18px; }
+
+  /* ---------- badges: colour + shape, redundant on purpose ---------- */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px 3px 7px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    border: 1.5px solid transparent;
+  }
+  .badge .shape {
+    width: 11px;
+    height: 11px;
+    flex: none;
+    display: inline-block;
+  }
+  /* pass: green pill + circle-check */
+  .badge.st-pass { background: var(--pass-bg); color: var(--pass); border-color: var(--pass); border-radius: 999px; }
+  .badge.st-pass .shape { border-radius: 50%; background: var(--pass); position: relative; }
+  .badge.st-pass .shape::after {
+    content: ""; position: absolute; left: 2.5px; top: 4px; width: 5px; height: 2.5px;
+    border-left: 2px solid var(--pass-bg); border-bottom: 2px solid var(--pass-bg);
+    transform: rotate(-45deg);
+  }
+  /* fail: red pill + triangle */
+  .badge.st-fail { background: var(--fail-bg); color: var(--fail); border-color: var(--fail); border-radius: 999px; }
+  .badge.st-fail .shape {
+    background: var(--fail);
+    clip-path: polygon(50% 0%, 0% 100%, 100% 100%);
+  }
+  /* timeout / degraded: amber pill + hexagon */
+  .badge.st-timeout { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); border-radius: 999px; }
+  .badge.st-timeout .shape {
+    background: var(--warn);
+    clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
+  }
+  /* unknown: grey pill + diamond */
+  .badge.st-unknown { background: var(--neutral-bg); color: var(--neutral); border-color: var(--neutral); border-radius: 999px; }
+  .badge.st-unknown .shape {
+    background: var(--neutral);
+    clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+  }
+  /* not started: dashed outline pill, no fill, plain dash */
+  .badge.st-notstarted { background: transparent; color: var(--text-faint); border-style: dashed; border-color: var(--text-faint); border-radius: 999px; }
+  .badge.st-notstarted .shape { background: transparent; border-top: 2px solid var(--text-faint); margin-top: 4px; height: 0; }
+  /* no-script / not-applicable: flat grey square, slash */
+  .badge.st-na { background: var(--neutral-bg); color: var(--text-dim); border-color: var(--panel-border); border-radius: 4px; }
+  .badge.st-na .shape {
+    background: var(--text-dim);
+    clip-path: polygon(40% 0, 60% 0, 60% 100%, 40% 100%);
+    transform: rotate(20deg);
+  }
+
+  /* ---------- top band: the 3 demo-decider tiles ---------- */
+  .band {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 18px;
+  }
+  @media (max-width: 680px) {
+    .band { grid-template-columns: 1fr; }
+  }
+  .tile {
+    background: var(--panel);
+    border: 1.5px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  .tile.tile-pass { border-color: var(--pass); }
+  .tile.tile-fail { border-color: var(--fail); }
+  .tile.tile-warn { border-color: var(--warn); }
+  .tile.tile-unknown { border-color: var(--neutral); }
+  .tile-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 6px;
+  }
+  .tile-title { font-size: 13px; font-weight: 700; }
+  .tile-detail { font-size: 12px; color: var(--text-dim); line-height: 1.45; }
+  .tile-detail .line { margin-top: 2px; }
+  .tile-detail code { background: var(--code-bg); color: var(--code-text); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+
+  section.tracks h2 {
+    font-size: 15px;
+    margin: 4px 0 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 12px;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1.5px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .card.overall-fail { border-color: var(--fail); }
+  .card.overall-warn { border-color: var(--warn); }
+  .card.overall-unknown { border-color: var(--neutral); }
+
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .card-head .id {
+    display: inline-block;
+    font-weight: 800;
+    font-size: 13px;
+    background: var(--code-bg);
+    color: var(--accent);
+    padding: 2px 7px;
+    border-radius: 6px;
+    margin-right: 7px;
+  }
+  .card-head .name { font-size: 14.5px; font-weight: 700; }
+  .card-head .owns { font-size: 12px; color: var(--text-dim); margin-top: 3px; }
+
+  .kv-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .kv-label {
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+    font-weight: 700;
+    width: 100%;
+  }
+  .chip {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--code-bg);
+    color: var(--text-dim);
+    border: 1px solid var(--panel-border);
+  }
+  .chip.yes { color: var(--pass); border-color: var(--pass); background: var(--pass-bg); }
+  .chip.no { color: var(--text-faint); }
+
+  .progress-wrap { display: flex; align-items: center; gap: 8px; }
+  .progress-track {
+    flex: 1;
+    height: 7px;
+    border-radius: 999px;
+    background: var(--code-bg);
+    overflow: hidden;
+    border: 1px solid var(--panel-border);
+  }
+  .progress-fill { height: 100%; background: var(--accent); }
+  .progress-fill.zero { background: var(--panel-border); }
+  .progress-num { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; }
+  .task-changes { font-size: 11px; color: var(--text-faint); }
+  .task-changes .change { margin-top: 2px; }
+
+  .blocked-list {
+    font-size: 12px;
+    color: var(--warn);
+    background: var(--warn-bg);
+    border-radius: 8px;
+    padding: 7px 10px;
+    line-height: 1.5;
+  }
+  .blocked-list ul { margin: 3px 0 0; padding-left: 16px; }
+  .not-blocked { font-size: 12px; color: var(--text-faint); }
+
+  .run-cmd {
+    background: var(--code-bg);
+    color: var(--code-text);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 11.5px;
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .run-note { font-size: 11.5px; color: var(--text-faint); font-style: italic; }
+
+  details.other-specs {
+    margin-top: 22px;
+    background: var(--panel);
+    border: 1.5px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 10px 14px;
+  }
+  details.other-specs summary {
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-dim);
+  }
+  .other-specs-list { margin-top: 8px; font-size: 12px; display: grid; gap: 5px; }
+  .other-specs-list .row { display: flex; justify-content: space-between; gap: 10px; color: var(--text-dim); }
+
+  footer {
+    margin-top: 24px;
+    font-size: 11px;
+    color: var(--text-faint);
+    text-align: center;
+  }
+</style>
+
+<div class="top">
+  <h1>SecureGuIA — Team Dashboard</h1>
+  <div class="sub">generated by <code>node scripts/dashboard.mjs</code>, reading <code>status.mjs</code> live</div>
+</div>
+
+<div id="freshness">
+  <span class="dot"></span>
+  <span class="label" id="freshness-label">checking…</span>
+  <span class="detail" id="freshness-detail"></span>
+  <span class="regen">stale? run <code class="mono">node scripts/dashboard.mjs</code> again and reopen the file</span>
+</div>
+
+<div id="warnings-slot"></div>
+
+<div class="band" id="band"></div>
+
+<section class="tracks">
+  <h2>Tracks</h2>
+  <div class="grid" id="tracks-grid"></div>
+</section>
+
+<div id="other-specs-slot"></div>
+
+<footer id="footer"></footer>
+
+<script type="application/json" id="status-data">__STATUS_JSON__</script>
+<script>
+(function () {
+  "use strict";
+  var DATA = JSON.parse(document.getElementById("status-data").textContent);
+
+  // ---------- generic status classification ----------
+  // status.mjs's own vocabulary: pass | fail | not_started | no_script |
+  // not_applicable | timeout | unknown. Anything not recognised falls back
+  // to "unknown" rather than silently being treated as fine — a badge we've
+  // never seen before must never render as green.
+  function classify(status) {
+    switch (status) {
+      case "pass": return "pass";
+      case "fail": return "fail";
+      case "timeout": return "timeout";
+      case "not_started": return "notstarted";
+      case "no_script":
+      case "not_applicable": return "na";
+      case "unknown":
+      default: return "unknown";
+    }
+  }
+  var STATUS_TEXT = {
+    pass: "pass", fail: "fail", timeout: "timeout", notstarted: "not started",
+    na: "n/a", unknown: "unknown",
+  };
+
+  function badge(status, extraText) {
+    var cls = classify(status);
+    var span = document.createElement("span");
+    span.className = "badge st-" + cls;
+    var shape = document.createElement("span");
+    shape.className = "shape";
+    span.appendChild(shape);
+    var label = document.createElement("span");
+    label.textContent = extraText || STATUS_TEXT[cls];
+    span.appendChild(label);
+    return span;
+  }
+
+  function el(tag, className, text) {
+    var e = document.createElement(tag);
+    if (className) e.className = className;
+    if (text !== undefined && text !== null) e.textContent = text;
+    return e;
+  }
+
+  function fmtAgo(ms) {
+    if (ms < 0) ms = 0;
+    var s = Math.floor(ms / 1000);
+    if (s < 60) return s + "s ago";
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + "m " + (s % 60) + "s ago";
+    var h = Math.floor(m / 60);
+    return h + "h " + (m % 60) + "m ago";
+  }
+
+  // ---------- freshness clock ----------
+  var generatedAt = new Date(DATA.generatedAt).getTime();
+  var dashGenAt = DATA.derived && DATA.derived.dashboardGeneratedAt
+    ? new Date(DATA.derived.dashboardGeneratedAt).getTime()
+    : generatedAt;
+  var box = document.getElementById("freshness");
+  var labelEl = document.getElementById("freshness-label");
+  var detailEl = document.getElementById("freshness-detail");
+
+  function renderFreshness() {
+    if (isNaN(generatedAt)) {
+      box.className = "stale";
+      labelEl.textContent = "no timestamp in status data";
+      detailEl.textContent = "";
+      return;
+    }
+    var age = Date.now() - generatedAt;
+    var tier = age < 2 * 60 * 1000 ? "fresh" : age < 10 * 60 * 1000 ? "aging" : "stale";
+    box.className = tier;
+    labelEl.textContent =
+      (tier === "fresh" ? "Live-ish" : tier === "aging" ? "Getting stale" : "STALE") +
+      " — data generated " + fmtAgo(age);
+    detailEl.textContent = "status.mjs ran at " + new Date(generatedAt).toLocaleString() +
+      (DATA.derived ? "  ·  page built " + new Date(dashGenAt).toLocaleString() : "");
+  }
+  renderFreshness();
+  setInterval(renderFreshness, 1000);
+
+  // ---------- warnings ----------
+  if (Array.isArray(DATA.warnings) && DATA.warnings.length > 0) {
+    var wbox = el("div", "warnings");
+    wbox.appendChild(el("div", null, "status.mjs reported problems building this report:"));
+    var ul = document.createElement("ul");
+    DATA.warnings.forEach(function (w) { ul.appendChild(el("li", null, w)); });
+    wbox.appendChild(ul);
+    document.getElementById("warnings-slot").appendChild(wbox);
+  }
+
+  // ---------- top band ----------
+  function tile(title, statusClass, lines) {
+    var t = el("div", "tile tile-" + statusClass);
+    var head = el("div", "tile-head");
+    head.appendChild(el("span", "tile-title", title));
+    t.appendChild(head);
+    var headBadgeHolder = head; // badge appended by caller via return value
+    var detail = el("div", "tile-detail");
+    lines.forEach(function (line) {
+      var d = el("div", "line");
+      d.innerHTML = line; // lines are built from our own escaped strings below
+      detail.appendChild(d);
+    });
+    t.appendChild(detail);
+    return { el: t, head: head };
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function code(s) { return "<code>" + escapeHtml(s) + "</code>"; }
+
+  var band = document.getElementById("band");
+
+  // Tile 1: demo intact
+  (function () {
+    var demo = DATA.demo || {};
+    var ok = demo.intact === true;
+    var tcStatus = demo.typecheck && demo.typecheck.status;
+    var lines = [
+      "demo script: " + (demo.demoScriptPresent === true ? "present" : "MISSING"),
+      "replay.ts: " + (demo.replayFilePresent ? "present" : "MISSING"),
+      "fixture: " + (demo.fixturePresent ? "present" : "MISSING"),
+      "agent typecheck: " + (tcStatus || "unknown"),
+    ];
+    var statusClass = ok ? "pass" : (tcStatus === "unknown" ? "unknown" : "fail");
+    var built = tile("npm run demo (fallback)", statusClass, lines);
+    built.head.appendChild(badge(ok ? "pass" : (tcStatus === "unknown" ? "unknown" : "fail"), ok ? "intact" : "broken"));
+    band.appendChild(built.el);
+  })();
+
+  // Tile 2: npm run check
+  (function () {
+    var ac = DATA.agentCheck || {};
+    var check = ac.check || {};
+    var status = check.status || "unknown";
+    var firstLine = (check.output || check.firstError || check.reason || "").split("\n")[0];
+    var lines = [
+      ".env present: " + (ac.hasEnvFile ? "yes" : "no"),
+      "model key: " + (ac.modelKeyPresent ? code(ac.whichKey) + " set" : "MISSING"),
+      firstLine ? code(firstLine) : "",
+    ].filter(Boolean);
+    var statusClass = status === "pass" ? "pass" : status === "fail" ? "fail" : status === "timeout" ? "warn" : "unknown";
+    var built = tile("npm run check (agent)", statusClass, lines);
+    built.head.appendChild(badge(status));
+    band.appendChild(built.el);
+  })();
+
+  // Tile 3: missing env vars, across every package status.mjs inspected
+  (function () {
+    var env = DATA.env || {};
+    var missing = [];
+    Object.keys(env).forEach(function (pkg) {
+      var e = env[pkg];
+      if (e && Array.isArray(e.missingRequired) && e.missingRequired.length > 0) {
+        e.missingRequired.forEach(function (v) { missing.push(pkg + "/" + v); });
+      }
+    });
+    var ok = missing.length === 0;
+    var lines = ok
+      ? ["no required env vars missing (that have an .env.example to check against)"]
+      : missing.map(function (m) { return code(m); });
+    var built = tile("Required env vars", ok ? "pass" : "fail", lines);
+    built.head.appendChild(badge(ok ? "pass" : "fail", ok ? "all set" : missing.length + " missing"));
+    band.appendChild(built.el);
+  })();
+
+  // ---------- track cards ----------
+  function statusEntryBadgeRow(labelPrefix, obj) {
+    var row = el("div", "kv-row");
+    if (!obj || typeof obj !== "object" || Object.keys(obj).length === 0) {
+      row.appendChild(el("span", "chip no", "none"));
+      return row;
+    }
+    Object.keys(obj).forEach(function (pkg) {
+      var entry = obj[pkg] || {};
+      var wrap = el("span", null);
+      wrap.style.display = "inline-flex";
+      wrap.style.alignItems = "center";
+      wrap.style.gap = "4px";
+      var pkgLabel = el("span", "chip", pkg);
+      wrap.appendChild(pkgLabel);
+      var st = entry.status;
+      var extra = "";
+      if (st === "pass" && entry.counts && typeof entry.counts.tests === "number") {
+        extra = entry.counts.pass + "/" + entry.counts.tests;
+      }
+      wrap.appendChild(badge(st, extra ? (STATUS_TEXT[classify(st)] + " " + extra) : undefined));
+      row.appendChild(wrap);
+    });
+    return row;
+  }
+
+  function existsChips(existsObj) {
+    var row = el("div", "kv-row");
+    if (!existsObj || typeof existsObj !== "object") {
+      row.appendChild(el("span", "chip no", "unknown"));
+      return row;
+    }
+    Object.keys(existsObj).forEach(function (key) {
+      var v = existsObj[key];
+      if (Array.isArray(v)) {
+        if (v.length === 0) return; // empty file lists add noise, not signal
+        var chip = el("span", "chip", key + ": " + v.join(", "));
+        row.appendChild(chip);
+        return;
+      }
+      if (typeof v === "boolean") {
+        var c = el("span", "chip " + (v ? "yes" : "no"), key + (v ? " ✓" : " ✗"));
+        row.appendChild(c);
+        return;
+      }
+      row.appendChild(el("span", "chip", key + ": " + v));
+    });
+    return row;
+  }
+
+  function overallForTrack(track) {
+    // A track object can itself be the catastrophic-failure shape
+    // { id, name, owns, status: "unknown", reason } when status.mjs's own
+    // buildTrackReport threw — that has no typecheck/tests to roll up.
+    if (track.status === "unknown" && !track.typecheck && !track.tests) {
+      return "unknown";
+    }
+    var entries = [];
+    [track.typecheck, track.tests].forEach(function (group) {
+      if (group && typeof group === "object") {
+        Object.keys(group).forEach(function (k) {
+          if (group[k] && group[k].status) entries.push(group[k].status);
+        });
+      }
+    });
+    if (entries.length === 0) return "notstarted";
+    if (entries.every(function (s) { return s === "not_started"; })) return "notstarted";
+    if (entries.some(function (s) { return s === "fail"; })) return "fail";
+    if (entries.some(function (s) { return s === "timeout" || s === "unknown"; })) return "warn";
+    // remaining entries are pass / no_script / not_applicable — treat as healthy
+    return "pass";
+  }
+
+  var grid = document.getElementById("tracks-grid");
+  (DATA.tracks || []).forEach(function (track) {
+    var overall = overallForTrack(track);
+    var card = el("div", "card" + (overall === "fail" ? " overall-fail" : overall === "warn" ? " overall-warn" : overall === "unknown" ? " overall-unknown" : ""));
+
+    var head = el("div", "card-head");
+    var titleWrap = el("div");
+    var titleLine = el("div");
+    titleLine.appendChild(el("span", "id", track.id));
+    titleLine.appendChild(el("span", "name", track.name || "(unnamed)"));
+    titleWrap.appendChild(titleLine);
+    titleWrap.appendChild(el("div", "owns", track.owns || (track.reason || "")));
+    head.appendChild(titleWrap);
+    var overallBadgeStatus = overall === "notstarted" ? "not_started" : overall === "warn" ? "timeout" : overall === "unknown" ? "unknown" : overall;
+    head.appendChild(badge(overallBadgeStatus, overall === "pass" ? "on track" : overall === "notstarted" ? "not started" : overall === "warn" ? "attention" : overall === "unknown" ? "unknown" : "failing"));
+    card.appendChild(head);
+
+    // If this track is the catastrophic-failure shape, say so plainly and stop.
+    if (track.status === "unknown" && !track.typecheck && !track.tests) {
+      var errBox = el("div", "blocked-list", "status.mjs could not build a report for this track: " + (track.reason || "unknown error"));
+      card.appendChild(errBox);
+      grid.appendChild(card);
+      return;
+    }
+
+    card.appendChild(el("div", "kv-label", "Exists"));
+    card.appendChild(existsChips(track.exists));
+
+    card.appendChild(el("div", "kv-label", "Typecheck"));
+    card.appendChild(statusEntryBadgeRow("Typecheck", track.typecheck));
+
+    card.appendChild(el("div", "kv-label", "Tests"));
+    card.appendChild(statusEntryBadgeRow("Tests", track.tests));
+
+    // tasks
+    var tasks = track.tasks || { done: 0, total: 0, byChange: {} };
+    card.appendChild(el("div", "kv-label", "OpenSpec tasks"));
+    var pwrap = el("div", "progress-wrap");
+    var ptrack = el("div", "progress-track");
+    var pct = tasks.total > 0 ? Math.round((tasks.done / tasks.total) * 100) : 0;
+    var pfill = el("div", "progress-fill" + (tasks.done === 0 ? " zero" : ""));
+    pfill.style.width = pct + "%";
+    ptrack.appendChild(pfill);
+    pwrap.appendChild(ptrack);
+    pwrap.appendChild(el("span", "progress-num", tasks.done + "/" + tasks.total + " (" + pct + "%)"));
+    card.appendChild(pwrap);
+    if (tasks.byChange && Object.keys(tasks.byChange).length > 0) {
+      var tc = el("div", "task-changes");
+      Object.keys(tasks.byChange).forEach(function (name) {
+        var c = tasks.byChange[name];
+        tc.appendChild(el("div", "change", name + ": " + c.done + "/" + c.total + (c.present ? "" : " (missing tasks.md)")));
+      });
+      card.appendChild(tc);
+    }
+
+    // blocked
+    card.appendChild(el("div", "kv-label", "Blocked on"));
+    if (Array.isArray(track.blocked) && track.blocked.length > 0) {
+      var bl = el("div", "blocked-list");
+      var bul = document.createElement("ul");
+      track.blocked.forEach(function (b) { bul.appendChild(el("li", null, b)); });
+      bl.appendChild(bul);
+      card.appendChild(bl);
+    } else {
+      card.appendChild(el("div", "not-blocked", "not blocked"));
+    }
+
+    // run command (derived by dashboard.mjs from real package.json scripts)
+    var rc = DATA.derived && DATA.derived.runCommands ? DATA.derived.runCommands[track.id] : null;
+    card.appendChild(el("div", "kv-label", "Run"));
+    if (rc && rc.command) {
+      card.appendChild(el("div", "run-cmd", rc.command));
+    } else {
+      card.appendChild(el("div", "run-note", (rc && rc.note) || "not started"));
+    }
+
+    grid.appendChild(card);
+  });
+
+  // ---------- other openspec changes, not owned by a track ----------
+  (function () {
+    var os = DATA.openspec || {};
+    if (!Array.isArray(os.unmapped) || os.unmapped.length === 0) return;
+    var d = document.createElement("details");
+    d.className = "other-specs";
+    var summary = document.createElement("summary");
+    summary.textContent = "Other OpenSpec proposals not owned by a track (" + os.unmapped.length + ") — deferred / cross-cutting per current scope";
+    d.appendChild(summary);
+    var list = el("div", "other-specs-list");
+    os.unmapped.forEach(function (name) {
+      var t = (os.unmappedTasks && os.unmappedTasks[name]) || {};
+      var row = el("div", "row");
+      row.appendChild(el("span", null, name));
+      row.appendChild(el("span", "mono", (t.done || 0) + "/" + (t.total || 0) + " tasks"));
+      list.appendChild(row);
+    });
+    d.appendChild(list);
+    document.getElementById("other-specs-slot").appendChild(d);
+  })();
+
+  document.getElementById("footer").textContent =
+    "repo: " + (DATA.repoRoot || "") + "  ·  regenerate with: node scripts/dashboard.mjs";
+})();
+</script>

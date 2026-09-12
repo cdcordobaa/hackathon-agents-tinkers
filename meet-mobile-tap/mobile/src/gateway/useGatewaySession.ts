@@ -1,23 +1,26 @@
 /**
- * React binding over GatewaySessionClient. One client per sessionId for the
- * lifetime of the component tree that holds it — a new sessionId (starting
- * over from the setup screen) gets a fresh client and a fresh socket.
+ * React binding over GatewaySessionClient. One client per `attemptKey` for
+ * the lifetime of the component tree that holds it — bump the key (App.tsx
+ * does this from the setup screen and from "start a new session" on the
+ * summary screen) to get a fresh client, which is what triggers a fresh
+ * `POST /session` on the next `start()` rather than reusing a session that
+ * may already be `ended`.
  */
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { TranscriptSourceKind } from "../../../shared/src";
 import { GatewaySessionClient } from "./client";
 
-export function useGatewaySession(sessionId: string) {
-  const client = useMemo(() => new GatewaySessionClient(sessionId), [sessionId]);
+export function useGatewaySession(attemptKey: number | string) {
+  const client = useMemo(() => new GatewaySessionClient(), [attemptKey]);
 
   const state = useSyncExternalStore(
     (onStoreChange) => client.subscribe(onStoreChange),
     () => client.getState(),
   );
 
-  // Tear the socket down if the component holding this hook unmounts
-  // without an explicit disconnect (e.g. the user backgrounds the app from
-  // the call screen) — otherwise the backoff loop retries forever.
+  // Tear the socket down if the component holding this hook unmounts, or a
+  // new attemptKey retires this client, without an explicit disconnect —
+  // otherwise the backoff loop retries forever.
   useEffect(() => {
     return () => client.disconnect();
   }, [client]);
