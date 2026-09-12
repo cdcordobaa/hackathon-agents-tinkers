@@ -6,9 +6,11 @@
  * Env vars read here:
  *   PORT               gateway HTTP/WS port. Default 8787.
  *   DEFAULT_TRANSPORT  transport a bare `POST /session` gets when it does
- *                      not name one. Default "replay". "twilio"/"livekit"
- *                      are accepted by the type but not implemented in this
- *                      scope — creating a source for either throws.
+ *                      not name one. Default "replay". "livekit" (the
+ *                      browser rung, see browser-source.ts) now works too;
+ *                      "twilio" is still accepted by the type but not
+ *                      implemented in this scope — creating a source for it
+ *                      throws.
  *   REPLAY_SPEED       ReplaySource's speed multiplier. Default 8 (a ~35s
  *                      scripted call finishes in a few seconds).
  * Everything else (OPENAI_API_KEY / GEMINI_API_KEY, ANALYSIS_PROVIDER,
@@ -19,6 +21,7 @@ import { resolveModelSetup } from "../../agent/src/model-client.ts";
 import { createGateway } from "./gateway.ts";
 import { SessionRegistry } from "./session-registry.ts";
 import { ReplaySource } from "./replay-source.ts";
+import { BrowserTranscriptSource } from "./browser-source.ts";
 import type { TranscriptSourceKind } from "../../shared/src/index.ts";
 
 const PORT = Number(process.env.PORT) || 8787;
@@ -38,9 +41,13 @@ const registry = new SessionRegistry({
   defaultTransportKind: DEFAULT_TRANSPORT,
   createTranscriptSource: (kind) => {
     if (kind === "replay") return new ReplaySource(undefined, REPLAY_SPEED);
-    // Twilio and LiveKit transcript sources are other tracks' work — see
-    // add-twilio-call-transport / the shared/ scope note on `kind: 'livekit'`.
-    throw new Error(`transport "${kind}" has no TranscriptSource in this build — use "replay"`);
+    // The browser rung (web/) pushes segments over HTTP instead of this
+    // process pulling them — see browser-source.ts and gateway.ts's
+    // POST /session/:id/segments route.
+    if (kind === "livekit") return new BrowserTranscriptSource();
+    // Twilio's transcript source is another track's work — see
+    // add-twilio-call-transport.
+    throw new Error(`transport "${kind}" has no TranscriptSource in this build — use "replay" or "livekit"`);
   },
   analyzer: {
     client: modelSetup.client,
