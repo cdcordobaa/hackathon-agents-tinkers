@@ -1,10 +1,10 @@
 /**
  * The alerts, and a way to see each one.
  *
- * This screen exists because nothing raises an alert yet: no detection engine,
- * no link to the dialer. It says that plainly rather than dressing the three
- * buttons up as a feature — and when the engine lands, this screen can go
- * without anything else changing.
+ * The Live tab raises these for real, from the analyzer. This screen stays
+ * because a warning you can only see by waiting for a scam call is a warning
+ * nobody can review: it puts all three on demand, on scripted content, so the
+ * wording and the timing can be judged. It is a preview, and says so.
  */
 import { StyleSheet, Text, View } from "react-native";
 import { Screen, SectionLabel, TopBar } from "../ui";
@@ -45,11 +45,12 @@ export function Alerts({ onBack }: { onBack: () => void }) {
         what makes the other three worth reading.
       </Text>
 
-      <SectionLabel>Not wired up yet</SectionLabel>
+      <SectionLabel>These three are previews</SectionLabel>
       <Text style={s.footnote}>
-        Nothing is listening to a real call. These three run on a scripted example so the wording
-        and the timing can be judged before the detection engine is connected. Each one still
-        writes a call into your activity when it finishes, the same way a real one will.
+        They run on a scripted example, so the wording and the timing can be judged on demand
+        rather than waited for. Each one writes a call into your activity when it finishes.
+        The real thing is on the Live tab: the same three warnings, raised from what the
+        analyzer found in an actual call, and a high one ends that call on its countdown.
       </Text>
     </Screen>
   );
