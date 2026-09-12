@@ -94,6 +94,183 @@ test("speakers are buffered independently", () => {
   assert.equal(chunks[0]?.speaker, "caller", "must not mix the two buffers");
 });
 
+test("a completed short utterance flushes before the maximum chunk duration", () => {
+  const chunks: Chunk[] = [];
+  const chunker = new AudioChunker({
+    sampleRate: RATE,
+    chunkMs: 12_000,
+    trailingSilenceMs: 800,
+    minChunkMs: 3_000,
+    onChunk: (chunk) => chunks.push(chunk),
+  });
+
+  chunker.push("caller", tone(2_200));
+  chunker.push("caller", silence(800));
+
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0]?.durationMs, 3_000);
+  assert.equal(chunks[0]?.speaker, "caller");
+});
+
+test("a pause shorter than trailingSilenceMs does not flush", () => {
+  const chunks: Chunk[] = [];
+  const chunker = new AudioChunker({
+    sampleRate: RATE,
+    chunkMs: 12_000,
+    trailingSilenceMs: 800,
+    minChunkMs: 3_000,
+    onChunk: (chunk) => chunks.push(chunk),
+  });
+
+  chunker.push("caller", tone(3_000));
+  chunker.push("caller", silence(780));
+  assert.equal(chunks.length, 0);
+
+  chunker.push("caller", silence(20));
+  assert.equal(chunks.length, 1);
+});
+
+test("minChunkMs prevents short utterances from fragmenting the request stream", () => {
+  const chunks: Chunk[] = [];
+  const chunker = new AudioChunker({
+    sampleRate: RATE,
+    chunkMs: 12_000,
+    trailingSilenceMs: 800,
+    minChunkMs: 3_000,
+    onChunk: (chunk) => chunks.push(chunk),
+  });
+
+  chunker.push("caller", tone(500));
+  chunker.push("caller", silence(800));
+  assert.equal(chunks.length, 0, "a 1.3s fragment must remain buffered");
+
+  chunker.push("caller", silence(1_700));
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0]?.durationMs, 3_000);
+});
+
+test("trailing-silence VAD spans arbitrary 10 ms RTC frames", () => {
+  const chunks: Chunk[] = [];
+  const chunker = new AudioChunker({
+    sampleRate: RATE,
+    chunkMs: 12_000,
+    minVoicedMs: 400,
+    trailingSilenceMs: 800,
+    minChunkMs: 1_000,
+    onChunk: (chunk) => chunks.push(chunk),
+  });
+
+  for (let i = 0; i < 40; i += 1) chunker.push("caller", tone(10));
+  for (let i = 0; i < 79; i += 1) chunker.push("caller", silence(10));
+  assert.equal(chunks.length, 0);
+  chunker.push("caller", silence(10));
+
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0]?.durationMs, 1_200);
+  assert.equal(chunks[0]?.voicedMs, 400);
+});
+
+test("early-flush state remains independent for each speaker", () => {
+  const chunks: Chunk[] = [];
+  const chunker = new AudioChunker({
+    sampleRate: RATE,
+    chunkMs: 12_000,
+    minVoicedMs: 400,
+    trailingSilenceMs: 800,
+    minChunkMs: 1_000,
+    onChunk: (chunk) => chunks.push(chunk),
+  });
+
+  chunker.push("caller", tone(400));
+  chunker.push("you", tone(400));
+  chunker.push("caller", silence(800));
+  assert.deepEqual(chunks.map((chunk) => chunk.speaker), ["caller"]);
+
+  chunker.push("you", silence(800));
+  assert.deepEqual(chunks.map((chunk) => chunk.speaker), ["caller", "you"]);
+});
+
+test("long leading silence does not consume chunkMs or minChunkMs", () => {
+  const chunks: Chunk[] = [];
+  const chunker = new AudioChunker({
+    sampleRate: RATE,
+    chunkMs: 12_000,
+    minVoicedMs: 400,
+    trailingSilenceMs: 800,
+    minChunkMs: 3_000,
+    trimLeadingSilence: true,
+    onChunk: (chunk) => chunks.push(chunk),
+  });
+
+  chunker.push("caller", silence(20_000));
+  chunker.push("caller", tone(500));
+  chunker.push("caller", silence(800));
+  assert.equal(chunks.length, 0, "pre-speech room tone must not satisfy the minimum");
+
+  chunker.push("caller", silence(1_500));
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0]?.durationMs, 3_000, "only bounded preroll and post-detection audio are buffered");
+});
+
+test("trimLeadingSilence retains at most 200 ms of silent preroll", () => {
+  const chunks: Chunk[] = [];
+  const quiet = tone(350, 100);
+  const expectedPreroll = quiet.subarray(quiet.length - Math.round(RATE * 0.2));
+  const chunker = new AudioChunker({
+    sampleRate: RATE,
+    chunkMs: 600,
+    minVoicedMs: 400,
+    trimLeadingSilence: true,
+    onChunk: (chunk) => chunks.push(chunk),
+  });
+
+  chunker.push("caller", quiet);
+  chunker.push("caller", tone(400));
+
+  assert.equal(chunks.length, 1);
+  assert.equal(chunks[0]?.durationMs, 600);
+  assert.deepEqual(chunks[0]?.pcm.subarray(0, expectedPreroll.length), expectedPreroll);
+});
+
+test("leading-silence trimming resets for the next utterance", () => {
+  const chunks: Chunk[] = [];
+  const chunker = new AudioChunker({
+    sampleRate: RATE,
+    chunkMs: 12_000,
+    minVoicedMs: 400,
+    trailingSilenceMs: 800,
+    minChunkMs: 1_000,
+    trimLeadingSilence: true,
+    onChunk: (chunk) => chunks.push(chunk),
+  });
+
+  chunker.push("caller", tone(400));
+  chunker.push("caller", silence(800));
+  chunker.push("caller", silence(5_000));
+  chunker.push("caller", tone(400));
+  chunker.push("caller", silence(800));
+
+  assert.deepEqual(chunks.map((chunk) => chunk.durationMs), [1_200, 1_400]);
+});
+
+test("silence-only input stays in bounded preroll and never requests transcription", () => {
+  const chunks: Chunk[] = [];
+  const dropped: string[] = [];
+  const chunker = new AudioChunker({
+    sampleRate: RATE,
+    chunkMs: 1_000,
+    trimLeadingSilence: true,
+    onChunk: (chunk) => chunks.push(chunk),
+    onSilence: (speaker) => dropped.push(speaker),
+  });
+
+  for (let i = 0; i < 2_000; i += 1) chunker.push("caller", silence(10));
+  chunker.flush();
+
+  assert.equal(chunks.length, 0);
+  assert.equal(dropped.length, 0, "preroll never becomes a candidate model chunk");
+});
+
 test("flush emits a partial chunk at end of call", () => {
   const chunks: Chunk[] = [];
   const chunker = new AudioChunker({

@@ -51,11 +51,12 @@ export class RollingTranscript {
   }
 
   /** The turn closed. This is the only thing that reaches the transcript. */
-  final(speaker: string, text: string): void {
+  final(speaker: string, text: string, capturedAt = this.now() - this.startedAt): void {
     this.open.delete(speaker);
     const trimmed = text.trim();
     if (!trimmed) return;
-    this.segments.push({ speaker, text: trimmed, at: this.now() - this.startedAt });
+    const at = Number.isFinite(capturedAt) ? capturedAt : this.now() - this.startedAt;
+    this.segments.push({ speaker, text: trimmed, at: Math.max(0, at) });
   }
 
   /** Final segments that have arrived since the last markAnalyzed(). */
@@ -105,7 +106,10 @@ export class RollingTranscript {
   }
 
   private format(segments: readonly Segment[]): string {
-    return segments.map((s) => `${formatClock(s.at)} ${s.speaker}: ${s.text}`).join("\n");
+    // Provider requests for different speakers can complete out of order.
+    // Storage stays in arrival order so pendingSegments/renderPending remain exact.
+    return [...segments].sort((left, right) => left.at - right.at)
+      .map((s) => `${formatClock(s.at)} ${s.speaker}: ${s.text}`).join("\n");
   }
 }
 

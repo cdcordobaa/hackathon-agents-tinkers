@@ -34,31 +34,79 @@ export type AudioChunkerOptions = {
   silenceFloor?: number;
   /** A chunk with less voiced audio than this is dropped untranscribed. */
   minVoicedMs?: number;
+  /** When set, emit an utterance after this much consecutive quiet audio.
+   *  Fixed `chunkMs` remains the hard maximum. */
+  trailingSilenceMs?: number;
+  /** Do not use trailing silence to emit before this much audio is buffered. */
+  minChunkMs?: number;
+  /** Ignore unbounded room tone before speech while retaining a short silent
+   *  preroll so the beginning of the first word is not clipped. */
+  trimLeadingSilence?: boolean;
   onChunk: (chunk: Chunk) => void;
   /** Told about dropped chunks, so the caller can log rather than wonder. */
   onSilence?: (speaker: string, voicedMs: number) => void;
 };
 
 const WINDOW_MS = 20;
+const LEADING_SILENCE_PREROLL_MS = 200;
+
+type VoiceState = {
+  windowSamples: number;
+  windowSumSquares: number;
+  voicedMs: number;
+  trailingSilenceMs: number;
+};
 
 export class AudioChunker {
   private readonly buffers = new Map<string, Int16Array[]>();
   private readonly lengths = new Map<string, number>();
+  private readonly voiceStates = new Map<string, VoiceState>();
+  private readonly prerolls = new Map<string, Int16Array>();
 
   private readonly sampleRate: number;
   private readonly chunkSamples: number;
+  private readonly windowSamples: number;
   private readonly silenceFloor: number;
   private readonly minVoicedMs: number;
+  private readonly trailingSilenceMs: number | undefined;
+  private readonly minChunkSamples: number;
+  private readonly trimLeadingSilence: boolean;
+  private readonly prerollSamples: number;
 
   constructor(private readonly options: AudioChunkerOptions) {
     this.sampleRate = options.sampleRate;
     this.chunkSamples = Math.round((this.sampleRate * (options.chunkMs ?? 12_000)) / 1000);
+    this.windowSamples = Math.max(1, Math.round((this.sampleRate * WINDOW_MS) / 1000));
     this.silenceFloor = options.silenceFloor ?? 300;
     this.minVoicedMs = options.minVoicedMs ?? 400;
+    this.trailingSilenceMs = options.trailingSilenceMs;
+    this.minChunkSamples = Math.max(
+      0,
+      Math.round((this.sampleRate * (options.minChunkMs ?? 0)) / 1000),
+    );
+    this.trimLeadingSilence = options.trimLeadingSilence ?? false;
+    this.prerollSamples = Math.round(
+      (this.sampleRate * LEADING_SILENCE_PREROLL_MS) / 1000,
+    );
   }
 
   push(speaker: string, frame: Int16Array): void {
     if (frame.length === 0) return;
+
+    if (this.trimLeadingSilence && !this.buffers.has(speaker)) {
+      if (frameRms(frame) < this.silenceFloor) {
+        this.storePreroll(speaker, frame);
+        return;
+      }
+      const preroll = this.prerolls.get(speaker);
+      this.prerolls.delete(speaker);
+      if (preroll?.length) this.append(speaker, preroll);
+    }
+
+    this.append(speaker, frame);
+  }
+
+  private append(speaker: string, frame: Int16Array): void {
 
     const parts = this.buffers.get(speaker) ?? [];
     parts.push(frame);
@@ -66,14 +114,21 @@ export class AudioChunker {
 
     const length = (this.lengths.get(speaker) ?? 0) + frame.length;
     this.lengths.set(speaker, length);
+    const voice = this.measureFrame(speaker, frame);
 
-    if (length >= this.chunkSamples) this.emit(speaker);
+    const endedUtterance = this.trailingSilenceMs !== undefined &&
+      length >= this.minChunkSamples &&
+      voice.voicedMs >= this.minVoicedMs &&
+      voice.trailingSilenceMs >= this.trailingSilenceMs;
+    if (length >= this.chunkSamples || endedUtterance) this.emit(speaker);
   }
 
   /** End of call, or the speaker left. Emits whatever is buffered. */
   flush(speaker?: string): void {
     const speakers = speaker ? [speaker] : [...this.buffers.keys()];
     for (const s of speakers) this.emit(s);
+    if (speaker) this.prerolls.delete(speaker);
+    else this.prerolls.clear();
   }
 
   private emit(speaker: string): void {
@@ -81,8 +136,10 @@ export class AudioChunker {
     const length = this.lengths.get(speaker) ?? 0;
     if (!parts || length === 0) return;
 
-    this.buffers.set(speaker, []);
-    this.lengths.set(speaker, 0);
+    this.buffers.delete(speaker);
+    this.lengths.delete(speaker);
+    this.voiceStates.delete(speaker);
+    this.prerolls.delete(speaker);
 
     const pcm = new Int16Array(length);
     let offset = 0;
@@ -101,6 +158,57 @@ export class AudioChunker {
 
     this.options.onChunk({ speaker, pcm, sampleRate: this.sampleRate, durationMs, voicedMs });
   }
+
+  private storePreroll(speaker: string, frame: Int16Array): void {
+    if (this.prerollSamples <= 0) return;
+    const previous = this.prerolls.get(speaker);
+    const combinedLength = Math.min(
+      this.prerollSamples,
+      (previous?.length ?? 0) + frame.length,
+    );
+    const preroll = new Int16Array(combinedLength);
+    const fromFrame = Math.min(frame.length, combinedLength);
+    const fromPrevious = combinedLength - fromFrame;
+    if (fromPrevious > 0 && previous) {
+      preroll.set(previous.subarray(previous.length - fromPrevious), 0);
+    }
+    preroll.set(frame.subarray(frame.length - fromFrame), fromPrevious);
+    this.prerolls.set(speaker, preroll);
+  }
+
+  /** Incremental 20 ms windows preserve VAD state when rtc-node delivers
+   *  frames shorter than the window (commonly 10 ms). */
+  private measureFrame(speaker: string, frame: Int16Array): VoiceState {
+    const state = this.voiceStates.get(speaker) ?? {
+      windowSamples: 0,
+      windowSumSquares: 0,
+      voicedMs: 0,
+      trailingSilenceMs: 0,
+    };
+    for (const sample of frame) {
+      state.windowSamples += 1;
+      state.windowSumSquares += sample * sample;
+      if (state.windowSamples < this.windowSamples) continue;
+
+      const rms = Math.sqrt(state.windowSumSquares / state.windowSamples);
+      if (rms >= this.silenceFloor) {
+        state.voicedMs += WINDOW_MS;
+        state.trailingSilenceMs = 0;
+      } else {
+        state.trailingSilenceMs += WINDOW_MS;
+      }
+      state.windowSamples = 0;
+      state.windowSumSquares = 0;
+    }
+    this.voiceStates.set(speaker, state);
+    return state;
+  }
+}
+
+function frameRms(pcm: Int16Array): number {
+  let sum = 0;
+  for (const sample of pcm) sum += sample * sample;
+  return Math.sqrt(sum / pcm.length);
 }
 
 /** Milliseconds of audio whose 20 ms windows are above the noise floor. */

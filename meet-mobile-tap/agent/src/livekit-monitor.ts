@@ -26,14 +26,13 @@ import {
 } from "./livekit-monitor-helpers.ts";
 import { resolveModelSetup } from "./model-client.ts";
 import { SpeakerTaskQueue } from "./speaker-task-queue.ts";
-import { transcribeChunk } from "./transcribe.ts";
+import { transcribeChunk, TranscriptionError, TranscriptionFailures } from "./transcribe.ts";
 import { RollingTranscript } from "./transcript.ts";
 
 const SAMPLE_RATE = 24_000;
 const SNAPSHOT_INTERVAL_MS = 1_000;
 const AUDIO_HEALTH_MS = 2_000;
 const AUDIBLE_RMS = 100;
-const TRANSCRIBE_TIMEOUT_MS = 12_000;
 const ANALYSIS_TIMEOUT_MS = 15_000;
 const CONNECT_TIMEOUT_MS = 10_000;
 const STOP_MODEL_BUDGET_MS = 5_000;
@@ -90,6 +89,7 @@ export async function createLiveKitMonitor(
   let transportDisconnected = false;
   const operationAbort = new AbortController();
   const degradation = new Set<string>();
+  const transcriptionFailures = new TranscriptionFailures();
 
   const log = (message: string) => {
     try {
@@ -111,8 +111,9 @@ export async function createLiveKitMonitor(
 
   const snapshotStatus = (): Pick<CallSnapshot, "status" | "detail"> => {
     if (stopped) return { status: "ended", detail: "Monitoring ended." };
-    if (degradation.size > 0) {
-      return { status: "degraded", detail: [...degradation].join(" ") };
+    const failures = [...degradation, ...transcriptionFailures.details];
+    if (failures.length > 0) {
+      return { status: "degraded", detail: failures.join(" ") };
     }
     if (transcriptionsInFlight > 0) {
       return { status: "analyzing", detail: "Transcribing observed call audio." };
@@ -218,6 +219,7 @@ export async function createLiveKitMonitor(
         requestTimeoutMs: ANALYSIS_TIMEOUT_MS,
         signal: operationAbort.signal,
         onResult: (result) => {
+          degradation.delete("Risk analysis unavailable after a model request failed.");
           profile = result;
           requestPublish(true);
         },
@@ -229,36 +231,42 @@ export async function createLiveKitMonitor(
       })
     : undefined;
 
-  const transcriptionQueue = new SpeakerTaskQueue(1, (_speakerId) => {
-    degradation.add("Transcription unavailable after an audio request failed.");
-    log("Transcription request failed; the affected audio chunk was omitted.");
+  // Four waiting utterances absorb a bounded 30s provider slowdown without
+  // discarding the short remainder of an otherwise healthy conversation.
+  const transcriptionQueue = new SpeakerTaskQueue(4, (speakerId, error) => {
+    if (operationAbort.signal.aborted) return;
+    transcriptionFailures.fail(speakerId, error);
+    const reason = error instanceof TranscriptionError ? `${error.kind}: ${error.message}` : "connection or provider failure";
+    log(`Transcription failed for ${safeLabel(speakerId)} (${reason}); the affected audio chunk was omitted.`);
     requestPublish(true);
   });
 
-  const processChunk = async (chunk: Chunk) => {
+  const processChunk = async (chunk: Chunk, capturedAt: number) => {
     const descriptor = speakerDetails.get(chunk.speaker);
     if (!geminiKey || !descriptor?.consented) return;
     transcriptionsInFlight += 1;
     requestPublish(true);
+    const requestedAt = Date.now();
     try {
       const text = await transcribeChunk(chunk.pcm, chunk.sampleRate, {
         apiKey: geminiKey,
-        signal: AbortSignal.any([
-          operationAbort.signal,
-          AbortSignal.timeout(TRANSCRIBE_TIMEOUT_MS),
-        ]),
+        signal: operationAbort.signal,
       });
+      const recovered = transcriptionFailures.recover(chunk.speaker);
+      log(`Transcription ${recovered ? "recovered" : "completed"} for ${safeLabel(chunk.speaker)} in ${Date.now() - requestedAt}ms (${chunk.durationMs}ms audio).`);
       // Consent can be revoked while a request is in flight.
       const current = speakerDetails.get(chunk.speaker);
       if (!text || !current?.consented) return;
-      transcript.final(analysisSpeakerLabel(current), text);
+      const at = Math.max(0, capturedAt - startedAt);
+      transcript.final(analysisSpeakerLabel(current), text, at);
       turns.push({
         id: `${chunk.speaker}:${++turnSequence}`,
         speakerId: chunk.speaker,
         speakerName: current.displayName,
         text,
-        at: Math.max(0, Date.now() - startedAt),
+        at,
       });
+      turns.sort((left, right) => left.at - right.at);
       if (turns.length > 60) turns.splice(0, turns.length - 60);
       requestPublish(true);
     } finally {
@@ -269,9 +277,15 @@ export async function createLiveKitMonitor(
 
   const chunker = new AudioChunker({
     sampleRate: SAMPLE_RATE,
+    trailingSilenceMs: 800,
+    minChunkMs: 3_000,
+    trimLeadingSilence: true,
     onChunk: (chunk) => {
-      if (!transcriptionQueue.enqueue(chunk.speaker, () => processChunk(chunk))) {
+      const capturedAt = Date.now() - chunk.durationMs;
+      if (!transcriptionQueue.enqueue(chunk.speaker, () => processChunk(chunk, capturedAt))) {
         log(`Audio backlog full for ${safeLabel(chunk.speaker)}; one bounded chunk was dropped.`);
+        transcriptionFailures.fail(chunk.speaker, new TranscriptionError("provider", "Transcription is falling behind; an audio segment was skipped. Waiting for the queued audio."));
+        requestPublish(true);
       }
     },
     onSilence: (speakerId) => log(`Silent chunk skipped for ${safeLabel(speakerId)}.`),
