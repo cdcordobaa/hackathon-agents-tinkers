@@ -98,6 +98,10 @@ test("POST /session creates a session; WS drives it through consent to a risk up
     collectEvents(ws, events);
     await opened(ws);
 
+    // Malformed, null and oversized client data are ignored without taking
+    // down the shared gateway or changing session state.
+    ws.send("null");
+    ws.send("x".repeat(17_000));
     ws.send(JSON.stringify({ type: "session.start" }));
     await waitFor(() => events.some((e) => e.type === "session.state" && e.state === "awaiting-consent"));
 
@@ -174,5 +178,17 @@ test("a session ended and released from the registry cannot be reconnected to", 
       reconnect.once("close", () => resolve("close"));
     });
     assert.notEqual(outcome, "open", "an ended, released session must refuse a new subscriber");
+  });
+});
+
+test("an oversized HTTP body is rejected before creating a session", async () => {
+  await withServer(async ({ baseUrl, registry }) => {
+    const response = await fetch(`${baseUrl}/session`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: " ".repeat(4_500_001),
+    });
+    assert.equal(response.status, 400);
+    assert.equal(registry.size, 0);
   });
 });

@@ -82,6 +82,7 @@ export class Session {
   private readonly source: TranscriptSource;
   private readonly transcript: RollingTranscript;
   private readonly analyzer: ProgressiveAnalyzer;
+  private readonly analyzerAbort = new AbortController();
   private readonly onEvent: (event: SessionEvent) => void;
   private readonly now: () => number;
   private readonly startedAt: number;
@@ -116,6 +117,9 @@ export class Session {
 
     this.analyzer = new ProgressiveAnalyzer({
       ...options.analyzer,
+      signal: options.analyzer.signal
+        ? AbortSignal.any([options.analyzer.signal, this.analyzerAbort.signal])
+        : this.analyzerAbort.signal,
       transcript: this.transcript,
       onResult: (profile, meta) => this.handleRiskUpdate(profile, meta),
       onError: (error) => this.emitError(error.message),
@@ -188,6 +192,21 @@ export class Session {
     this.finish("call-ended");
   }
 
+  /** Immediate gateway-shutdown cleanup. This never starts or waits for a
+   * final model pass, but it does cancel a pass already in flight. */
+  async abort(reason: TranscriptSourceStopReason = "replaced"): Promise<void> {
+    if (this.stateValue === "ended") return;
+    if (this.flushHandle) clearImmediate(this.flushHandle);
+    this.flushHandle = undefined;
+    this.pending.clear();
+    this.analyzer.stop();
+    this.analyzerAbort.abort();
+    for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
+    this.stateValue = "ended";
+    this.endingInFlight = false;
+    await this.source.stop(reason);
+  }
+
   // ---- transport-driven ---------------------------------------------------
 
   private handleTransportEnded(reason: TranscriptSourceStopReason): void {
@@ -249,6 +268,7 @@ export class Session {
   }
 
   private handleRiskUpdate(profile: RiskProfile, meta: PassMeta): void {
+    if (this.analyzerAbort.signal.aborted) return;
     this.emit({ type: "risk.updated", profile, pass: meta.pass, latencyMs: meta.latencyMs });
   }
 
@@ -289,6 +309,7 @@ export class Session {
         this.flushPending();
       }
       await this.analyzer.flush();
+      if (this.analyzerAbort.signal.aborted) return;
       this.cleanup(reason);
       this.moveTo("ended");
     } finally {
@@ -319,6 +340,7 @@ export class Session {
   }
 
   private emitError(message: string): void {
+    if (this.analyzerAbort.signal.aborted) return;
     this.emit({ type: "error", message });
   }
 

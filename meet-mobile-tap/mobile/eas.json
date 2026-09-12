@@ -1,0 +1,66 @@
+{
+  "//": [
+    "Expo Go will NOT run this app. @livekit/react-native and react-native-webrtc",
+    "are native modules, so every profile here produces a real native build.",
+    "",
+    "EXPO_PUBLIC_ vars are baked in at BUILD time, which is why the experience",
+    "selector lives here and not in .env — a .env is gitignored and EAS never",
+    "uploads it. The gateway URL is deliberately NOT baked: it is an editable",
+    "field on the join screen, so one build works against any laptop on any wifi.",
+    "",
+    "  preview    Android APK, JS bundled, no Metro. The demo build — hand the",
+    "             download link to anyone and they install it.",
+    "  simulator  iOS Simulator .app. Free: no Apple Developer account needed.",
+    "  device     Physical iPhone. Needs a paid Apple Developer account.",
+    "  development  Dev client that connects to your Metro over the LAN."
+  ],
+  "cli": {
+    "version": ">= 12.0.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_CALL_EXPERIENCE": "livekit"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_CALL_EXPERIENCE": "livekit"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "simulator": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_CALL_EXPERIENCE": "livekit"
+      },
+      "ios": {
+        "simulator": true
+      }
+    },
+    "device": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_CALL_EXPERIENCE": "livekit"
+      }
+    },
+    "session-preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_CALL_EXPERIENCE": "session"
+      },
+      "android": {
+        "buildType": "apk"
+      }
+    }
+  }
+}

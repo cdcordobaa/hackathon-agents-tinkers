@@ -2,8 +2,12 @@
   "name": "secureguia",
   "version": "0.1.0",
   "private": true,
-  "description": "Workspace root for SecureGuIA — not a build system. Each of agent/, shared/, server/, mobile/ manages its own dependencies.",
+  "description": "SecureGuIA browser and native call clients with one local gateway.",
   "scripts": {
+    "setup:gateway": "npm --prefix agent ci && npm --prefix server ci",
+    "dev": "npm --prefix agent run dev",
+    "start": "npm --prefix agent start",
+    "test": "npm --prefix agent test && npm --prefix server test && npm --prefix mobile test",
     "status": "node scripts/status.mjs"
   }
 }

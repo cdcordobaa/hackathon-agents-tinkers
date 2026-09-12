@@ -11,6 +11,10 @@
       "bundleIdentifier": "dev.hackaton.roomtap",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "Room Tap uses the microphone to carry your side of the call and to transcribe it.",
+        "NSLocalNetworkUsageDescription": "Room Tap connects to the SecureGuIA demo gateway running on your local network.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        },
         "UIBackgroundModes": [
           "audio",
           "voip"
@@ -38,7 +42,8 @@
     },
     "plugins": [
       "@livekit/react-native-expo-plugin",
-      "@config-plugins/react-native-webrtc"
+      "@config-plugins/react-native-webrtc",
+      "./plugins/with-demo-cleartext.js"
     ],
     "scheme": "roomtap"
   }

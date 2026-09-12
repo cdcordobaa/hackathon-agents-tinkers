@@ -10,8 +10,8 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { TranscriptSourceKind } from "../../../shared/src";
 import { GatewaySessionClient } from "./client";
 
-export function useGatewaySession(attemptKey: number | string) {
-  const client = useMemo(() => new GatewaySessionClient(), [attemptKey]);
+export function useGatewaySession(attemptKey: number | string, gatewayUrl?: string) {
+  const client = useMemo(() => new GatewaySessionClient(gatewayUrl), [attemptKey, gatewayUrl]);
 
   const state = useSyncExternalStore(
     (onStoreChange) => client.subscribe(onStoreChange),
@@ -27,13 +27,12 @@ export function useGatewaySession(attemptKey: number | string) {
 
   return {
     state,
+    getState: () => client.getState(),
     start: (transport: TranscriptSourceKind) => client.start(transport),
-    /** Attaches to a session someone else already created — see
-     *  client.ts's `join()`. Never sends `session.start`. */
-    join: (sessionId: string) => client.join(sessionId),
     grantConsent: () => client.grantConsent(),
     declineConsent: () => client.declineConsent(),
     endSession: () => client.endSession(),
+    endSessionAndWait: (timeoutMs?: number) => client.endSessionAndWait(timeoutMs),
     disconnect: () => client.disconnect(),
   };
 }

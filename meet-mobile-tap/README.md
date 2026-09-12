@@ -1,79 +1,162 @@
-# SecureGuIA
+# SecureGuIA — browser and mobile calls
 
-Hackathon project — AI Tinkerers **"Agents, Everywhere"**, 12–13 September 2026. Surface: *In the room*.
+Two people join the same LiveKit room from a browser or the Expo app. A server-side
+participant receives their consented audio, transcribes it with Gemini, and publishes
+progressive risk assessments. The call screen shows **Call in progress**, elapsed time,
+people, audio activity, transcript, evidence, and guidance.
 
-An agent that listens to a live call from a React Native app and works from the transcript.
-
-## Where this stands
-
-Research is done and the MVP is built. `mobile/` is a working Expo app (Expo 57, RN 0.86) that
-joins a LiveKit room, publishes the microphone, and shows a live level meter per participant.
-It typechecks and the iOS native project is generated — but it has not yet been run against a
-live room, so the join path is unverified.
-
-[`CLAUDE.md`](./CLAUDE.md) is the working document and the thing to read first. It records which
-capture paths are genuinely blocked at the OS level and which three actually work in React Native,
-so that time is not spent re-discovering dead ends.
-
-The one rule it all reduces to:
-
-> React Native can capture any call your app is a party to. It can never capture a call another
-> app owns.
-
-## Working capture paths
-
-| Target | Package | Raw audio | |
-|---|---|---|---|
-| Your own calls | `@livekit/react-native` | Native track access | **chosen** |
-| Zoom meeting | `@zoom/meetingsdk-react-native` | `onMixedAudioRawDataReceived` | later |
-| Phone call (PSTN) | `@twilio/voice-react-native-sdk` | Server-side `<Start><Stream>` fork | later |
-
-Capture feeds a PCM16 mono 24 kHz pipeline into a transcription session, and the transcript into
-the agent.
-
-**Why LiveKit for the MVP:** a LiveKit room is WebRTC, so two clients in a room *is* a real call —
-no phone number, no carrier, no regulatory paperwork for a Colombian DID, and no native module.
-Zoom is the only way to be inside an actual Zoom meeting, but its raw-audio callback is not
-surfaced in JS and costs a Kotlin + Obj-C bridge.
-
-## Run it
+## Show the mid-call screen immediately
 
 ```bash
-cd mobile
-cp .env.example .env          # fill from LiveKit Cloud → Settings → Keys
-npm run token -- --room demo --identity phone
-npx expo run:ios              # LiveKit needs a dev build; Expo Go will not work
+cd meet-mobile-tap
+npm run setup:gateway
+npm run dev
 ```
 
-Mint a second token with a different `--identity` and the same `--room` to join from a browser or
-another device. Restart Metro with `--clear` after minting — Expo bakes `EXPO_PUBLIC_` vars in at
-bundle time.
+Open <http://localhost:8787> and choose **Open demo preview**. It opens an evolving
+sample already two minutes into a call. The persistent **Demo preview — no live call**
+banner identifies simulated audio levels, transcript, and assessments. No credentials,
+microphone, or model calls are needed for this route.
 
-## Layout
+## Make a real call
 
-    mobile/
-      App.tsx                  call screen — join, mute, live level meter per participant
-      index.ts                 imports src/livekit-globals FIRST (ordering is load-bearing)
-      src/livekit-globals.ts   registerGlobals(); separate module so it beats import hoisting
-      scripts/mint-token.mjs   mints a long-lived token into .env; no token server in the MVP
-    CLAUDE.md                  Research notes: what is blocked, what works, and why
+Copy `agent/.env.example` to `agent/.env` and fill in:
 
-## Next step
+| Setting | Where to obtain it | Purpose |
+| --- | --- | --- |
+| `LIVEKIT_URL` | [LiveKit Cloud](https://cloud.livekit.io), project settings | Room server URL (`wss://…`) |
+| `LIVEKIT_API_KEY` | Project → Settings → API keys | Server authentication |
+| `LIVEKIT_API_SECRET` | Same API key entry | Signs short-lived room tokens |
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | Audio transcription and default risk analysis |
+| `OPENAI_API_KEY` | Optional existing OpenAI project key | Alternative risk analysis; Gemini is still needed for transcription |
 
-Run it against a live room and confirm the meter moves. Then the agent: a LiveKit Agent joins the
-room server-side, subscribes to the audio tracks, and feeds a transcription session — the RN SDK
-gives tracks to render, not raw PCM in JS, so transcription belongs off the phone.
+Restart `npm run dev` after configuring keys. The service indicators report whether
+keys are configured; connection and provider failures appear separately during the call.
+Without model keys, audio calls still work and monitoring reports that analysis is unavailable.
 
-## Ground rules
+1. Open the browser companion on the computer at <http://localhost:8787>.
+2. Choose a room (for example `demo`), name, and role, confirm consent, then join.
+3. On the phone, choose **LiveKit**, enter the gateway's printed LAN URL and the same
+   room name, then continue and consent. A second browser participant can also join.
+4. Use headphones. Check that both people can hear one another and the audio meters move.
+5. Speak for at least 12 seconds. Transcription uses 12-second audio chunks; risk updates
+   follow completed transcription and the model interval, so this is not word-by-word captioning.
 
-- Check the level meter before debugging anything else. Silence is the expected failure on mobile
-  and it looks exactly like success — `App.tsx` renders `useTrackVolume` per participant for
-  precisely this reason.
-- The iOS Simulator borrows the Mac's microphone, so it is fine for a first check — but confirm on
-  a physical device before the demo.
-- Consent is a build requirement, not a footnote: 11 US states require all-party consent.
+Use localhost or HTTPS for browser microphone access. A plain HTTP LAN URL can reach
+the gateway from the native app, but browsers generally require a secure context for microphones.
+Each join gets a 30-minute room-scoped token; provider secrets never enter the app bundle.
 
-## Related
+### Local LiveKit, without a Cloud account
 
-Sibling project: `agents-everywhere-starter-kit` — the web `/voice` surface, with a tab+mic stereo
-tap feeding an OpenAI transcription session.
+[LiveKit supports local development](https://docs.livekit.io/transport/self-hosting/local/)
+with a public development key pair. On macOS:
+
+```bash
+brew install livekit
+cd meet-mobile-tap/agent
+npm run livekit:local
+```
+
+In a second terminal:
+
+```bash
+cd meet-mobile-tap/agent
+npm run dev:local
+```
+
+The supplied `livekit-local.yaml` binds and advertises loopback for both signaling and
+media. This connects browsers on this computer to a real room using `devkey` / `secret`.
+It still needs a Gemini key for real transcript and risk results. To use a physical phone
+with local LiveKit, change both `bind_addresses` and `rtc.node_ip` for your trusted LAN,
+then set `LIVEKIT_URL` to the computer's reachable LAN address instead of `127.0.0.1`.
+LiveKit Cloud avoids that local networking setup.
+
+## Phone setup
+
+See [Conectar el móvil a una llamada web](MOBILE_CALL.md) for the step-by-step Spanish guide.
+
+```bash
+cd meet-mobile-tap/mobile
+npm ci
+cp .env.example .env
+# Set EXPO_PUBLIC_GATEWAY_URL to the gateway's printed LAN URL for a physical phone.
+npx expo run:ios
+# Or: npx expo run:android
+```
+
+LiveKit requires a native development build; Expo Go does not work. Rebuild after native
+configuration changes. The gateway URL is also editable on the join screen. The phone
+defaults to the person being protected; the browser defaults to the other caller.
+Both clients let you select the participant's role before joining.
+
+The native configuration permits HTTP for this trusted-network demo. Use HTTPS and remove
+the Android `plugins/with-demo-cleartext.js` plugin registration before shipping a production app.
+
+### One mobile flow and one gateway
+
+The app now uses the existing setup → consent → call → summary screens for both call
+paths. `EXPO_PUBLIC_CALL_EXPERIENCE` is no longer needed.
+
+| Call path | Audio and analysis | Connection |
+| --- | --- | --- |
+| LiveKit (default) | Browser and phone share room audio; one server monitor transcribes and assesses it | `/api/join` → LiveKit room snapshots |
+| Replay | Scripted transcript through the session analyzer; no microphone | `/session` → ordered WebSocket events |
+
+The single gateway on port **8787** serves the browser, join API, and session API.
+Both paths feed the same mobile risk, evidence, transcript, and summary components.
+LiveKit snapshots are authenticated by publisher identity, checked against the room and
+sequence, and considered stale after 15 seconds without a new update. Reconnecting,
+degraded, and stale states suppress current risk guidance; the summary keeps the highest
+assessment actually observed. Leaving on one device does not end the other person's call.
+
+Replay needs a configured analysis provider. The assistant tab is optional and requires
+`EXPO_PUBLIC_COPILOTKIT_RUNTIME_URL` pointing to an independently running CopilotKit
+runtime; the call gateway does not implement that runtime. Twilio remains unavailable.
+
+`web/` retains the earlier browser transcription/segment-ingest harness for development.
+Use the browser served by `npm run dev` for the integrated browser-to-phone call;
+it uses server-side Gemini transcription and needs no browser OpenAI key or pasted room token.
+
+Provider credentials belong in ignored `agent/.env`. The server and the mobile/web
+token commands read that file; optional app-local `.env` overrides remain supported.
+Generated room tokens are local artifacts and are never committed.
+
+## Verification
+
+```bash
+cd meet-mobile-tap/agent
+npm test
+npm run typecheck
+npm run build:web
+npm run smoke:local  # requires npm run livekit:local; synthetic audio, no models/mic
+cd ../server
+npm test
+npm run typecheck
+cd ../mobile
+npm test
+npx tsc --noEmit
+npx expo export --platform ios --output-dir /tmp/secureguia-ios-export
+npx expo export --platform android --output-dir /tmp/secureguia-android-export
+```
+
+The local smoke test joins two real RTC clients through the gateway and verifies
+two-way audible PCM and receipt of the same monitor session through the shared
+browser/mobile snapshot receiver. It does not test physical microphones,
+Cloud networking, or model responses. Test these with real devices and configured keys.
+
+## Scope and layout
+
+- `agent/src/demo-server.ts`: local join gateway and per-room monitor lifecycle.
+- `agent/src/livekit-monitor.ts`: PCM capture, transcription queues, risk analysis, snapshots.
+- `agent/web/`: browser participant and explicitly simulated presentation mode.
+- `mobile/`: Expo participant, in-call HUD, and local last-seen summary.
+- `shared/session.ts`: validated snapshot format shared by both clients.
+- `shared/room-session.ts`: shared publisher, ordering, restart, and freshness checks.
+- `server/`: session-event API, replay and segment ingestion, mounted on the same gateway.
+- `CLAUDE.md` and `openspec/`: earlier research and proposed contracts; reconciliation remains pending.
+
+This implementation does not implement Twilio/PSTN, capture calls
+owned by another app, persist transcripts, reconcile the OpenSpec event log, or claim a
+durable final report. The phone's end screen reflects the last snapshot it received.
+The gateway is for a trusted local demo: it has no application login and must not be
+exposed as a public token service. Empty rooms are reclaimed after a short grace period.

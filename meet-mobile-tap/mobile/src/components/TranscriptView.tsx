@@ -19,6 +19,7 @@ export function TranscriptView({ turns }: { turns: TranscriptTurn[] }) {
 
   return (
     <FlatList
+      style={{ flex: 1 }}
       data={turns}
       keyExtractor={(turn) => `${turn.seq}`}
       contentContainerStyle={{ gap: 10, paddingVertical: 4 }}

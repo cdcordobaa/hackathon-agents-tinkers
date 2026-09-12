@@ -18,6 +18,7 @@
  * caching can actually reuse between passes.
  */
 import OpenAI from "openai";
+import { isRiskProfile } from "../../shared/session.ts";
 import { RollingTranscript } from "./transcript.ts";
 import {
   RISK_PROFILE_SCHEMA,
@@ -41,6 +42,10 @@ export type AnalyzerOptions = {
   minNewSegments?: number;
   /** Prompt budget for the transcript itself. */
   maxTranscriptChars?: number;
+  /** Bound every model request so end-of-call shutdown cannot wait forever. */
+  requestTimeoutMs?: number;
+  /** Cancels model work when the owning call is torn down. */
+  signal?: AbortSignal;
   onResult: (profile: RiskProfile, meta: PassMeta) => void;
   onError?: (error: Error) => void;
 };
@@ -54,7 +59,7 @@ export type PassMeta = {
 
 export class ProgressiveAnalyzer {
   private timer?: ReturnType<typeof setInterval>;
-  private running = false;
+  private activePass?: Promise<void>;
   private passes = 0;
   private previous?: RiskProfile;
 
@@ -63,6 +68,7 @@ export class ProgressiveAnalyzer {
   private readonly minNewSegments: number;
   private readonly maxTranscriptChars: number;
   private readonly supportsStrictSchema: boolean;
+  private readonly requestTimeoutMs: number;
 
   constructor(private readonly options: AnalyzerOptions) {
     this.model = options.model ?? process.env.ANALYSIS_MODEL ?? "gpt-5-mini";
@@ -70,6 +76,7 @@ export class ProgressiveAnalyzer {
     this.intervalMs = options.intervalMs ?? 6_000;
     this.minNewSegments = options.minNewSegments ?? 1;
     this.maxTranscriptChars = options.maxTranscriptChars ?? 12_000;
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 15_000;
   }
 
   start(): void {
@@ -85,6 +92,10 @@ export class ProgressiveAnalyzer {
   /** Force a pass regardless of the interval — used at end of call so the last
    *  few turns are not dropped on the floor. */
   async flush(): Promise<void> {
+    // An interval tick is disposable, but an end-of-call flush is not. If a
+    // pass is already running, let it settle and then claim the final state of
+    // the transcript in a fresh pass.
+    while (this.activePass) await this.activePass;
     await this.tick({ force: true });
   }
 
@@ -93,15 +104,25 @@ export class ProgressiveAnalyzer {
   }
 
   private async tick({ force = false } = {}): Promise<void> {
+    if (this.activePass) return;
+
+    const pass = this.runPass(force);
+    if (!pass) return;
+
+    this.activePass = pass;
+    try {
+      await pass;
+    } finally {
+      if (this.activePass === pass) this.activePass = undefined;
+    }
+  }
+
+  private runPass(force: boolean): Promise<void> | undefined {
     const { transcript, onResult, onError } = this.options;
 
-    // A pass takes seconds. Drop the tick rather than queue it — a queue on a
-    // fixed interval only ever grows.
-    if (this.running) return;
-    if (!force && transcript.pendingSegments < this.minNewSegments) return;
-    if (transcript.segmentCount === 0) return;
+    if (!force && transcript.pendingSegments < this.minNewSegments) return undefined;
+    if (transcript.segmentCount === 0) return undefined;
 
-    this.running = true;
     const startedAt = Date.now();
     const segments = transcript.segmentCount;
 
@@ -109,23 +130,29 @@ export class ProgressiveAnalyzer {
     // next pass sends the whole transcript anyway, so nothing is actually lost.
     transcript.markAnalyzed();
 
-    try {
-      const profile = await this.analyze(transcript.render({ maxChars: this.maxTranscriptChars }));
-      this.previous = profile;
-      this.passes += 1;
-      onResult(profile, {
-        pass: this.passes,
-        segments,
-        latencyMs: Date.now() - startedAt,
-      });
-    } catch (cause) {
-      onError?.(cause instanceof Error ? cause : new Error(String(cause)));
-    } finally {
-      this.running = false;
-    }
+    return (async () => {
+      try {
+        const profile = await this.analyze(
+          transcript.render({ maxChars: this.maxTranscriptChars }),
+        );
+        this.previous = profile;
+        this.passes += 1;
+        onResult(profile, {
+          pass: this.passes,
+          segments,
+          latencyMs: Date.now() - startedAt,
+        });
+      } catch (cause) {
+        onError?.(cause instanceof Error ? cause : new Error(String(cause)));
+      }
+    })();
   }
 
   private async analyze(transcriptText: string): Promise<RiskProfile> {
+    const timeout = AbortSignal.timeout(this.requestTimeoutMs);
+    const signal = this.options.signal
+      ? AbortSignal.any([this.options.signal, timeout])
+      : timeout;
     const response = await this.options.client.chat.completions.create({
       model: this.model,
       messages: [
@@ -151,10 +178,19 @@ export class ProgressiveAnalyzer {
           schema: RISK_PROFILE_SCHEMA,
         },
       },
-    });
+    }, { signal });
 
     const raw = response.choices[0]?.message?.content;
     if (!raw) throw new Error("The model returned no content.");
-    return JSON.parse(raw) as RiskProfile;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error("The model returned invalid JSON.");
+    }
+    if (!isRiskProfile(parsed)) {
+      throw new Error("The model returned an invalid risk profile.");
+    }
+    return parsed;
   }
 }

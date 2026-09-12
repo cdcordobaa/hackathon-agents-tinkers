@@ -1,158 +1,172 @@
-/**
- * Two ways to get to a call, kept visibly separate so no one confuses them:
- *
- *   - Create a session: pick a transport, `POST /session` mints a brand new
- *     one, this phone drives it start to finish. Nothing here connects
- *     anything yet — the gateway socket does not open until Continue is
- *     pressed.
- *   - Join a session: paste the id the BROWSER's screen is showing (see
- *     web/src/main.ts) and attach to the session it already created and is
- *     already feeding a transcript into. This phone sends no `session.start`
- *     here — see gateway/client.ts's `join()` for why that would be a bug,
- *     not a formality.
- *
- * The gateway session id and the LiveKit ROOM name are two different
- * identifiers for two different things (see the note under the Join tab and
- * ../livekit/LiveKitCallPanel.tsx) — this screen only ever collects the
- * former; the room join happens on the call screen, from this build's own
- * LiveKit env token.
- *
- * The full mobile-call-ui spec asks for the gateway to advertise which
- * transports are actually available so an unavailable one is never offered.
- * shared/'s event protocol has no such event in this pass (see
- * shared/src/events.ts — session.state reports the transport a session
- * already runs on, not which ones exist to pick from), so Create's list is a
- * static list of the three kinds shared/ defines. Wiring live availability
- * is gateway work, not something the client can fabricate honestly.
- */
-import { useState } from "react";
 import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
-import type { TranscriptSourceKind } from "../../../shared/src";
 import { C, styles } from "../styles";
 
-const TRANSPORTS: { kind: TranscriptSourceKind; label: string; description: string }[] = [
+export type MobileTransport = "livekit" | "replay";
+export type CallRole = "subject" | "counterparty";
+
+const TRANSPORTS: { kind: MobileTransport; label: string; description: string }[] = [
+  {
+    kind: "livekit",
+    label: "LiveKit room",
+    description: "Join a real WebRTC call from this phone with live transcript and risk monitoring.",
+  },
   {
     kind: "replay",
     label: "Replay",
-    description: "A scripted bank-scam call through the real pipeline. No phone number, no LiveKit account — the safe default for a demo.",
-  },
-  {
-    kind: "twilio",
-    label: "Twilio",
-    description: "A real phone call. Twilio transcribes it server-side and posts segments to the gateway.",
-  },
-  {
-    kind: "livekit",
-    label: "LiveKit",
-    description:
-      "Join a WebRTC room from this phone. This phone's own mic is call-only — it publishes audio but does not transcribe it. For a live transcript and risk analysis on this path, don't create a session here: use \"Join a session\" with the id a browser tab on the same room is showing — the browser transcribes every participant and feeds this session.",
+    description: "Run the scripted bank-scam call through the event gateway without using a microphone.",
   },
 ];
 
-type Mode = "create" | "join";
-
 export function SetupScreen({
   selected,
+  gatewayUrl,
+  roomName,
+  displayName,
+  role,
+  error,
   onSelect,
+  onGatewayUrl,
+  onRoomName,
+  onDisplayName,
+  onRole,
   onContinue,
-  joinSessionId,
-  onJoinSessionIdChange,
-  onJoin,
 }: {
-  selected: TranscriptSourceKind;
-  onSelect: (kind: TranscriptSourceKind) => void;
+  selected: MobileTransport;
+  gatewayUrl: string;
+  roomName: string;
+  displayName: string;
+  role: CallRole;
+  error?: string;
+  onSelect: (kind: MobileTransport) => void;
+  onGatewayUrl: (value: string) => void;
+  onRoomName: (value: string) => void;
+  onDisplayName: (value: string) => void;
+  onRole: (value: CallRole) => void;
   onContinue: () => void;
-  joinSessionId: string;
-  onJoinSessionIdChange: (id: string) => void;
-  onJoin: () => void;
 }) {
-  const [mode, setMode] = useState<Mode>("create");
-  const trimmedJoinId = joinSessionId.trim();
-
   return (
-    <ScrollView contentContainerStyle={styles.scrollPage}>
+    <ScrollView contentContainerStyle={styles.scrollPage} keyboardShouldPersistTaps="handled">
       <Text style={styles.eyebrow}>SecureGuIA</Text>
       <Text style={styles.title}>Start a monitored call</Text>
       <Text style={styles.body}>
-        Watches a live call and flags social-engineering as it happens — a risk score you can
-        check against what was actually said, not a black box.
+        Join the same LiveKit room as the other caller and see risk signals tied to what was
+        actually said.
       </Text>
 
-      <View style={styles.segment}>
-        <ModeButton label="Create a session" active={mode === "create"} onPress={() => setMode("create")} />
-        <ModeButton label="Join a session" active={mode === "join"} onPress={() => setMode("join")} />
+      <Text style={[styles.eyebrow, { marginTop: 8 }]}>Call path</Text>
+      <View style={{ gap: 10 }}>
+        {TRANSPORTS.map((transport) => {
+          const active = transport.kind === selected;
+          return (
+            <Pressable
+              key={transport.kind}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: active }}
+              onPress={() => onSelect(transport.kind)}
+              style={[styles.card, active && { borderColor: C.accent }]}
+            >
+              <View style={styles.rowBetween}>
+                <Text style={styles.subtitle}>{transport.label}</Text>
+                <View style={[styles.chip, active && styles.chipSelected]}>
+                  <Text style={styles.chipLabel}>{active ? "Selected" : "Select"}</Text>
+                </View>
+              </View>
+              <Text style={styles.body}>{transport.description}</Text>
+            </Pressable>
+          );
+        })}
       </View>
 
-      {mode === "create" ? (
-        <>
-          <Text style={[styles.eyebrow, { marginTop: 8 }]}>Call path</Text>
-          <View style={{ gap: 10 }}>
-            {TRANSPORTS.map((t) => {
-              const isSelected = t.kind === selected;
-              return (
-                <Pressable
-                  key={t.kind}
-                  onPress={() => onSelect(t.kind)}
-                  style={[styles.card, isSelected && { borderColor: "#3FC6D1" }]}
-                >
-                  <View style={styles.rowBetween}>
-                    <Text style={styles.subtitle}>{t.label}</Text>
-                    <View style={[styles.chip, isSelected && styles.chipSelected]}>
-                      <Text style={styles.chipLabel}>{isSelected ? "Selected" : "Select"}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.body}>{t.description}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+      <Field
+        label="Gateway URL"
+        value={gatewayUrl}
+        onChangeText={onGatewayUrl}
+        autoCapitalize="none"
+        keyboardType="url"
+        placeholder="http://localhost:8787"
+        hint="Use your computer’s LAN address on a physical phone."
+      />
 
-          <Pressable style={[styles.primary, { marginTop: 8 }]} onPress={onContinue}>
-            <Text style={styles.primaryLabel}>Continue</Text>
-          </Pressable>
-        </>
-      ) : (
+      {selected === "livekit" ? (
         <>
-          <Text style={[styles.eyebrow, { marginTop: 8 }]}>Gateway session id</Text>
-          <View style={styles.card}>
-            <Text style={styles.body}>
-              Paste the session id shown on the browser tab that is already on this call — that
-              page created the session and is feeding it a live transcript. This phone attaches to
-              that SAME session; it does not start a new one.
-            </Text>
-            <TextInput
-              value={joinSessionId}
-              onChangeText={onJoinSessionIdChange}
-              placeholder="session id from the browser screen"
-              placeholderTextColor={C.faint}
-              autoCapitalize="none"
-              autoCorrect={false}
-              style={styles.input}
-            />
-            <Text style={styles.small}>
-              This is NOT the LiveKit room name. To have your own mic in the call, this phone joins
-              the LiveKit room separately, on the next screen, using its own env-configured token —
-              pasting a room name here would attach to the wrong thing.
-            </Text>
+          <Field
+            label="Room"
+            value={roomName}
+            onChangeText={onRoomName}
+            autoCapitalize="none"
+            placeholder="demo"
+          />
+          <Field
+            label="Display name"
+            value={displayName}
+            onChangeText={onDisplayName}
+            autoCapitalize="words"
+            placeholder="Your name"
+          />
+          <View style={{ gap: 7 }}>
+            <Text style={local.label}>Your role</Text>
+            <View accessibilityRole="radiogroup" style={styles.segment}>
+              <RoleButton label="Protected person" active={role === "subject"} onPress={() => onRole("subject")} />
+              <RoleButton label="Other caller" active={role === "counterparty"} onPress={() => onRole("counterparty")} />
+            </View>
           </View>
-
-          <Pressable
-            style={[styles.primary, { marginTop: 8 }, !trimmedJoinId && styles.primaryDisabled]}
-            onPress={onJoin}
-            disabled={!trimmedJoinId}
-          >
-            <Text style={styles.primaryLabel}>Join session</Text>
-          </Pressable>
         </>
-      )}
+      ) : null}
+
+      {error ? (
+        <View accessibilityRole="alert" style={[styles.banner, { borderColor: C.danger }]}>
+          <Text style={[styles.bannerText, { color: C.danger }]}>{error}</Text>
+        </View>
+      ) : null}
+
+      <Pressable accessibilityRole="button" style={[styles.primary, { marginTop: 8 }]} onPress={onContinue}>
+        <Text style={styles.primaryLabel}>Continue</Text>
+      </Pressable>
+      <Text style={styles.small}>Twilio calling is not available in this build.</Text>
     </ScrollView>
   );
 }
 
-function ModeButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+function Field({ label, hint, ...props }: React.ComponentProps<typeof TextInput> & { label: string; hint?: string }) {
   return (
-    <Pressable style={[styles.segmentItem, active && styles.segmentItemActive]} onPress={onPress}>
+    <View style={{ gap: 7 }}>
+      <Text style={local.label}>{label}</Text>
+      <TextInput
+        {...props}
+        accessibilityLabel={label}
+        placeholderTextColor={C.faint}
+        selectionColor={C.accent}
+        style={local.input}
+      />
+      {hint ? <Text style={styles.small}>{hint}</Text> : null}
+    </View>
+  );
+}
+
+function RoleButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={[styles.segmentItem, active && styles.segmentItemActive]}
+    >
       <Text style={[styles.segmentLabel, active && styles.segmentLabelActive]}>{label}</Text>
     </Pressable>
   );
 }
+
+const local = {
+  label: { color: C.text, fontSize: 14, fontWeight: "600" as const },
+  input: {
+    minHeight: 50,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 8,
+    backgroundColor: C.surface,
+    color: C.text,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+    fontSize: 16,
+  },
+};

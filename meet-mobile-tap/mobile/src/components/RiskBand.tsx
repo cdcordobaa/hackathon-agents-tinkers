@@ -26,22 +26,34 @@ const BAND_META: Record<RiskLevel, { glyph: string; label: string; color: string
 export function RiskBand({
   profile,
   analysing,
+  unavailable = false,
+  ended = false,
 }: {
   profile: RiskProfile | undefined;
   /** True once the call is running but no profile has landed yet. */
   analysing: boolean;
+  unavailable?: boolean;
+  ended?: boolean;
 }) {
   if (!profile) {
+    const title = ended
+      ? "Analysis ended"
+      : unavailable
+        ? "Live analysis unavailable"
+        : analysing
+          ? "Waiting for analysis"
+          : "Not started";
+    const detail = ended || unavailable
+      ? "Current risk and advice are hidden because live analysis is unavailable."
+      : analysing
+        ? "No assessment yet — this is not a score of zero, it's no data yet."
+        : "Risk assessment appears once the call is running.";
     return (
       <View style={[localStyles.card, localStyles.pending]}>
         <ActivityIndicator size="small" color={C.faint} />
         <View style={{ flex: 1 }}>
-          <Text style={styles.subtitle}>{analysing ? "Analysing the call…" : "Not started"}</Text>
-          <Text style={styles.small}>
-            {analysing
-              ? "No assessment yet — this is not a score of zero, it's no data yet."
-              : "Risk assessment appears once the call is running."}
-          </Text>
+          <Text style={styles.subtitle}>{title}</Text>
+          <Text style={styles.small}>{detail}</Text>
         </View>
       </View>
     );

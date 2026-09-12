@@ -19,22 +19,14 @@ export const GATEWAY_URL = (process.env.EXPO_PUBLIC_GATEWAY_URL ?? "http://local
   "",
 );
 
-/**
- * The CopilotKit runtime the in-call assistant talks to. Defaults to a path
- * on the same gateway so there is exactly one backend to stand up for the
- * whole app; add-copilot-fraud-assistant's design.md leaves open whether
- * this ends up being the gateway itself or the workspace's existing
- * claude-agent-server AG-UI bridge — either is a same-shape URL swap here.
- *
- * Per the assistant spec's "No provider credentials on the device"
- * requirement, this is a URL, never a model key.
- */
-export const RUNTIME_URL = process.env.EXPO_PUBLIC_RUNTIME_URL ?? `${GATEWAY_URL}/copilotkit`;
+/** Optional assistant runtime. Keep the Assistant tab absent until this
+ * public URL explicitly names a working runtime; provider keys stay server-side. */
+export const COPILOTKIT_RUNTIME_URL = process.env.EXPO_PUBLIC_COPILOTKIT_RUNTIME_URL?.trim() || undefined;
 
 /** ws(s) URL for one session's event stream, per shared/'s "phone -> gateway
  *  WebSocket -> session" design: one session per socket, addressed by the
  *  connection itself, so the id lives in the path and not in any message. */
-export function buildSessionWsUrl(sessionId: string): string {
-  const wsBase = GATEWAY_URL.replace(/^http/, "ws");
+export function buildSessionWsUrl(sessionId: string, gatewayUrl = GATEWAY_URL): string {
+  const wsBase = gatewayUrl.replace(/\/+$/, "").replace(/^http/, "ws");
   return `${wsBase}/session/${encodeURIComponent(sessionId)}`;
 }

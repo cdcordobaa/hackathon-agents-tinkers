@@ -20,6 +20,7 @@ const PROFILE: RiskProfile = {
  */
 function stubClient() {
   const calls: string[] = [];
+  let held: Promise<void> | undefined;
   let release: (() => void) | undefined;
 
   const client = {
@@ -27,7 +28,9 @@ function stubClient() {
       completions: {
         create: async (body: { messages: { content: string }[] }) => {
           calls.push(body.messages.at(-1)?.content ?? "");
-          if (release) await new Promise<void>((resolve) => (release = resolve));
+          const gate = held;
+          held = undefined;
+          if (gate) await gate;
           return { choices: [{ message: { content: JSON.stringify(PROFILE) } }] };
         },
       },
@@ -38,7 +41,7 @@ function stubClient() {
     client: client as unknown as OpenAI,
     calls,
     hold: () => {
-      release = () => {};
+      held = new Promise<void>((resolve) => (release = resolve));
     },
     releaseHold: () => release?.(),
   };
@@ -117,10 +120,37 @@ test("the previous assessment is carried into the next prompt", async () => {
   assert.match(stub.calls[1] ?? "", /Previous assessment: risk=low score=12/);
 });
 
-test("overlapping passes are dropped, not queued", async () => {
+test("periodic ticks are dropped while a pass is running", async () => {
   const stub = stubClient();
   const transcript = new RollingTranscript();
 
+  const analyzer = new ProgressiveAnalyzer({
+    transcript,
+    client: stub.client,
+    intervalMs: 5,
+    onResult: () => {},
+  });
+
+  transcript.final("caller", "one");
+  stub.hold();
+  analyzer.start();
+  await new Promise((resolve) => setTimeout(resolve, 15));
+
+  // While that one is still in flight, more speech arrives and another pass
+  // is attempted by the interval. It must be dropped.
+  transcript.final("caller", "two");
+  await new Promise((resolve) => setTimeout(resolve, 15));
+
+  assert.equal(stub.calls.length, 1, "overlapping interval passes should have been dropped");
+
+  analyzer.stop();
+  stub.releaseHold();
+  await tick();
+});
+
+test("flush waits for an active pass and then forces the final pass", async () => {
+  const stub = stubClient();
+  const transcript = new RollingTranscript();
   const analyzer = new ProgressiveAnalyzer({
     transcript,
     client: stub.client,
@@ -129,19 +159,19 @@ test("overlapping passes are dropped, not queued", async () => {
 
   transcript.final("caller", "one");
   stub.hold();
-
   const first = analyzer.flush();
   await tick();
 
-  // While that one is still in flight, more speech arrives and another pass
-  // is attempted. It must be dropped.
   transcript.final("caller", "two");
-  await analyzer.flush();
-
-  assert.equal(stub.calls.length, 1, "second pass should have been dropped");
+  const final = analyzer.flush();
+  await tick();
+  assert.equal(stub.calls.length, 1, "final pass waits instead of overlapping");
 
   stub.releaseHold();
-  await first;
+  await Promise.all([first, final]);
+
+  assert.equal(stub.calls.length, 2);
+  assert.match(stub.calls[1] ?? "", /two/);
 });
 
 test("a failed pass reports the error and does not wedge the analyzer", async () => {
@@ -201,4 +231,61 @@ test("empty model content is an error, not a crash", async () => {
 
   assert.equal(errors.length, 1);
   assert.match(errors[0] ?? "", /no content/i);
+});
+
+test("invalid risk profiles are rejected before onResult", async () => {
+  const transcript = new RollingTranscript();
+  const errors: string[] = [];
+  let results = 0;
+  const invalid = {
+    chat: {
+      completions: {
+        create: async () => ({
+          choices: [{ message: { content: JSON.stringify({ ...PROFILE, score: 101 }) } }],
+        }),
+      },
+    },
+  } as unknown as OpenAI;
+  const analyzer = new ProgressiveAnalyzer({
+    transcript,
+    client: invalid,
+    onResult: () => (results += 1),
+    onError: (error) => errors.push(error.message),
+  });
+
+  transcript.final("caller", "one");
+  await analyzer.flush();
+
+  assert.equal(results, 0);
+  assert.deepEqual(errors, ["The model returned an invalid risk profile."]);
+});
+
+test("model requests are aborted at the configured timeout", async () => {
+  const transcript = new RollingTranscript();
+  const errors: Error[] = [];
+  const hanging = {
+    chat: {
+      completions: {
+        create: async (_body: unknown, request: { signal: AbortSignal }) =>
+          await new Promise((_resolve, reject) => {
+            request.signal.addEventListener("abort", () => reject(request.signal.reason), {
+              once: true,
+            });
+          }),
+      },
+    },
+  } as unknown as OpenAI;
+  const analyzer = new ProgressiveAnalyzer({
+    transcript,
+    client: hanging,
+    requestTimeoutMs: 5,
+    onResult: () => assert.fail("a timed-out request must not publish a result"),
+    onError: (error) => errors.push(error),
+  });
+
+  transcript.final("caller", "one");
+  await analyzer.flush();
+
+  assert.equal(errors.length, 1);
+  assert.equal(errors[0]?.name, "TimeoutError");
 });
