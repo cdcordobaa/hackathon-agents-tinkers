@@ -44,10 +44,21 @@ export type AlertSignal = {
   quote: string;
 };
 
+/**
+ * Who owns the call record this alert resolves into.
+ *
+ * `demo` alerts are self-contained: they invent a caller and file their own
+ * record. A `live` alert is a view onto a session the LiveCall screen is
+ * holding — that screen writes the record when the session ends, so filing one
+ * here too would put the same call in Activity twice.
+ */
+export type AlertOrigin = "demo" | "live";
+
 export type LiveAlert = {
   id: string;
   level: AlertLevel;
   phase: AlertPhase;
+  origin: AlertOrigin;
   /** The dialer this is drawn over. Xentinela never owns the call. */
   app: string;
   caller: string;
@@ -108,7 +119,9 @@ const scripts: Record<AlertLevel, Script> = {
 };
 
 type Action =
-  | { type: "raise"; level: AlertLevel }
+  | { type: "raise"; level: AlertLevel; origin: AlertOrigin; content?: Partial<Script> }
+  /** A later analyzer pass on the SAME call: new wording, possibly a new level. */
+  | { type: "revise"; level: AlertLevel; content: Partial<Script> }
   | { type: "tick" }
   | { type: "ended"; callId: string }
   | { type: "clear" };
@@ -120,10 +133,27 @@ function reducer(alert: LiveAlert | null, action: Action): LiveAlert | null {
         id: `a${Date.now()}`,
         level: action.level,
         phase: "open",
+        origin: action.origin,
         app: "Phone",
         countdown: CUT_SECONDS,
         ...scripts[action.level],
+        ...action.content,
       };
+
+    // Risk is allowed to fall as well as rise — a pass that explains something
+    // away lowers the score — so this follows the analyzer in both directions.
+    // The countdown restarts only on the way UP into `high`: re-entering an
+    // alert that is already counting down must not hand back the seconds.
+    case "revise": {
+      if (!alert || alert.phase !== "open") return alert;
+      const escalating = action.level === "high" && alert.level !== "high";
+      return {
+        ...alert,
+        ...action.content,
+        level: action.level,
+        countdown: escalating ? CUT_SECONDS : alert.countdown,
+      };
+    }
 
     case "tick": {
       if (!alert || alert.level !== "high" || alert.phase !== "open") return alert;
@@ -148,6 +178,13 @@ type AlertStore = {
   /** True while the alert can be closed by a back gesture or a tap outside. */
   dismissible: boolean;
   raise: (level: AlertLevel) => void;
+  /** Raise or revise the alert for the call the LiveCall screen is holding. */
+  raiseLive: (level: AlertLevel, content: Partial<Script>) => void;
+  /** Take the live alert down without filing anything — the session ended. */
+  clear: () => void;
+  /** What "hang up" should do while a live alert is up. LiveCall owns the
+   *  session, so it owns the hanging up; the overlay only asks. */
+  setLiveHangUp: (hangUp: (() => void) | undefined) => void;
   /** Close without a verdict of your own: "Got it", "Stay on the call". */
   dismiss: () => void;
   /** Hang up from the alert itself. */
@@ -169,8 +206,15 @@ export function AlertProvider({ children }: { children: ReactNode }) {
 
   const guardianIds = useMemo(() => guardians.map((guardian) => guardian.id), [guardians]);
 
+  // Set by LiveCall while it holds a session. A ref, not state, because the
+  // timers below read it at the moment they fire, not at the moment they start.
+  const liveHangUp = useRef<(() => void) | undefined>(undefined);
+
   const log = useCallback(
     (current: LiveAlert, verdict: Verdict, headline: string): string => {
+      // A live alert's record belongs to the session, and LiveCall writes it
+      // when that session ends. Writing one here would duplicate the call.
+      if (current.origin === "live") return "";
       const id = `c${Date.now()}`;
       storeDispatch({
         type: "logCall",
@@ -222,6 +266,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     const timer = setTimeout(() => {
       const current = alertRef.current;
       if (!current) return;
+      if (current.origin === "live") liveHangUp.current?.();
       const callId = log(current, "blocked", "Ended automatically");
       dispatch({ type: "ended", callId });
     }, 1400);
@@ -235,7 +280,19 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     return {
       alert,
       dismissible,
-      raise: (level) => dispatch({ type: "raise", level }),
+      raise: (level) => dispatch({ type: "raise", level, origin: "demo" }),
+      raiseLive: (level, content) => {
+        const current = alertRef.current;
+        if (current?.origin === "live" && current.phase === "open") {
+          dispatch({ type: "revise", level, content });
+        } else if (!current) {
+          dispatch({ type: "raise", level, origin: "live", content });
+        }
+      },
+      clear: () => dispatch({ type: "clear" }),
+      setLiveHangUp: (hangUp) => {
+        liveHangUp.current = hangUp;
+      },
       dismiss: () => {
         const current = alertRef.current;
         if (!current) return;
@@ -250,6 +307,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
       hangUp: () => {
         const current = alertRef.current;
         if (!current) return;
+        if (current.origin === "live") liveHangUp.current?.();
         const callId = log(current, "flagged", "You ended the call");
         dispatch({ type: "ended", callId });
       },

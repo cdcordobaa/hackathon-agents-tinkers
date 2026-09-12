@@ -8,7 +8,13 @@ import { Card, Chevron, MutedSlider, Row, Screen, SectionLabel, Toggle, TopBar }
 import { color, space, type } from "../theme";
 import { useStore } from "../store";
 
-export function Settings({ onOpenPrivacy }: { onOpenPrivacy: () => void }) {
+export function Settings({
+  onOpenPrivacy,
+  onOpenAlerts,
+}: {
+  onOpenPrivacy: () => void;
+  onOpenAlerts: () => void;
+}) {
   const { protectionOn, dispatch } = useStore();
 
   return (
@@ -64,6 +70,13 @@ export function Settings({ onOpenPrivacy }: { onOpenPrivacy: () => void }) {
           icon="lock-closed-outline"
           title="Privacy and data"
           onPress={onOpenPrivacy}
+          right={<Chevron />}
+        />
+        <Row
+          icon="notifications-outline"
+          title="Warnings"
+          subtitle="What each one looks like"
+          onPress={onOpenAlerts}
           right={<Chevron />}
         />
       </Card>

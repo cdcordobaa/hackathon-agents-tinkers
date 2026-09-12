@@ -160,15 +160,27 @@ export class Session {
 
   /** idle -> awaiting-consent. Starts the transcript source; the analyzer
    *  does not start until consent is granted — there is nothing to analyse
-   *  before then, and no point ticking a timer for it. */
+   *  before then, and no point ticking a timer for it.
+   *
+   *  The exception is `replay`, which is deferred to `grantConsent()`. A real
+   *  call is already happening whether or not anyone has answered the consent
+   *  prompt, so starting twilio/livekit here and letting the gate throw the
+   *  segments away is the honest thing to do. A scripted fixture has no such
+   *  clock: started here, it plays to a closed gate while the person reads the
+   *  prompt, and a reader who takes ten seconds gets an empty call. */
   start(): void {
     if (!this.moveTo("awaiting-consent")) return;
+    if (this.source.kind === "replay") return;
     void this.source.start({ sessionId: this.id, startedAt: this.startedAt });
   }
 
   /** awaiting-consent -> running. */
   grantConsent(): void {
     if (!this.moveTo("running")) return;
+    // Deferred above, so the script starts from its first line, not its middle.
+    if (this.source.kind === "replay") {
+      void this.source.start({ sessionId: this.id, startedAt: this.startedAt });
+    }
     this.analyzer.start();
   }
 

@@ -49,6 +49,23 @@ export const verdictColor = {
   blocked: color.danger,
 } as const;
 
+/**
+ * The three degrees of interruption. Amber is a signal, red is a verdict, and
+ * `elevated` sits between them because it asks for a decision without having
+ * made one — giving it either neighbour's colour would misstate what it is.
+ */
+export const alertColor = {
+  low: color.warning,
+  elevated: '#FF9A5A',
+  high: color.danger,
+} as const;
+
+export const alertTint = {
+  low: color.warningTint,
+  elevated: 'rgba(255,154,90,0.13)',
+  high: color.dangerTint,
+} as const;
+
 export const verdictTint = {
   safe: color.accentTint,
   flagged: color.warningTint,

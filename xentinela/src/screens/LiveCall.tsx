@@ -15,18 +15,59 @@ import { Ionicons } from "@expo/vector-icons";
 import { Button, Card, Screen, SectionLabel, TopBar } from "../ui";
 import { color, radius, space, type, verdictColor, verdictTint } from "../theme";
 import { formatDuration, useStore } from "../store";
+import { useAlert, type AlertLevel } from "../alerts";
 import { useLiveCall } from "../live/useLiveCall";
 import { GATEWAY_URL } from "../live/config";
-import { verdictFor, type RiskProfile } from "../live/wire";
+import { verdictFor, type RiskLevel, type RiskProfile } from "../live/wire";
+
+/** The analyzer's four levels, and the three degrees of interruption. `none`
+ *  has no alert on purpose: a warning that says "nothing is wrong" teaches
+ *  people to ignore the ones that matter. */
+function alertLevelFor(risk: RiskLevel): AlertLevel | null {
+  if (risk === "high") return "high";
+  if (risk === "elevated") return "elevated";
+  if (risk === "low") return "low";
+  return null;
+}
 
 export function LiveCall({ onBack }: { onBack: () => void }) {
   const { guardians, dispatch } = useStore();
   const { state, start, grantConsent, declineConsent, end } = useLiveCall();
+  const { raiseLive, clear, setLiveHangUp } = useAlert();
   const [saved, setSaved] = useState(false);
   const recorded = useRef(false);
 
   const profile = state.profile;
   const verdict = verdictFor((profile ?? state.peak)?.risk ?? "none");
+
+  // Hanging up from the overlay has to reach this session — the overlay only
+  // asks, and only this screen holds the socket that can answer.
+  useEffect(() => {
+    setLiveHangUp(end);
+    return () => setLiveHangUp(undefined);
+  }, [setLiveHangUp, end]);
+
+  // Every analyzer pass lands on the overlay. This is the whole point of the
+  // screen: the warning a person actually sees is drawn from what the model
+  // found in this call, not from a script.
+  useEffect(() => {
+    if (!profile || state.sessionState !== "running") return;
+    const level = alertLevelFor(profile.risk);
+    if (!level) return;
+    raiseLive(level, {
+      caller: state.transport === "replay" ? "Unknown" : "Live call",
+      number: state.sessionId ? `session ${state.sessionId.slice(0, 8)}` : "—",
+      headline: profile.headline,
+      // `low` carries no instruction — it is context, not orders.
+      advice: level === "low" ? "" : profile.advice,
+      signals: profile.signals.map((signal) => ({ label: signal.type, quote: signal.quote })),
+    });
+  }, [profile, state.sessionState, state.transport, state.sessionId, raiseLive]);
+
+  // The call is over; the warning drawn over it has nothing left to warn about.
+  useEffect(() => {
+    if (state.sessionState === "ended") clear();
+  }, [state.sessionState, clear]);
 
   // One write, on the transition into `ended`. The ref rather than `saved`
   // alone because this effect can re-run before the state update lands.

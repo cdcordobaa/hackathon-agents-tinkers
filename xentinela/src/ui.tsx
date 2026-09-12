@@ -21,7 +21,9 @@ import { color, radius, space, type } from "./theme";
 
 type IconName = React.ComponentProps<typeof Ionicons>["name"];
 
-const androidInset = Platform.OS === "android" ? StatusBar.currentHeight ?? 24 : 0;
+/** Android draws under the status bar, so anything pinned to the top — the
+ *  TopBar, and the alert strip that lands above it — has to clear it itself. */
+export const androidInset = Platform.OS === "android" ? StatusBar.currentHeight ?? 24 : 0;
 
 export function Screen({
   children,

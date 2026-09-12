@@ -18,6 +18,7 @@ import {
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { StoreProvider } from "./src/store";
+import { AlertProvider } from "./src/alerts";
 import { color, radius, space, type } from "./src/theme";
 import { Shield } from "./src/screens/Shield";
 import { Activity } from "./src/screens/Activity";
@@ -26,16 +27,21 @@ import { People } from "./src/screens/People";
 import { AddGuardian } from "./src/screens/AddGuardian";
 import { Settings } from "./src/screens/Settings";
 import { Privacy } from "./src/screens/Privacy";
+import { Alerts } from "./src/screens/Alerts";
+import { AlertOverlay } from "./src/screens/CallAlert";
+import { LiveCall } from "./src/screens/LiveCall";
 
-type TabKey = "shield" | "activity" | "people" | "settings";
+type TabKey = "shield" | "live" | "activity" | "people" | "settings";
 
 type Route =
   | { name: "callDetail"; id: string }
   | { name: "addGuardian" }
-  | { name: "privacy" };
+  | { name: "privacy" }
+  | { name: "alerts" };
 
 const tabs: { key: TabKey; label: string; icon: keyof typeof Ionicons.glyphMap; active: keyof typeof Ionicons.glyphMap }[] = [
   { key: "shield", label: "Shield", icon: "shield-outline", active: "shield" },
+  { key: "live", label: "Live", icon: "radio-outline", active: "radio" },
   { key: "activity", label: "Activity", icon: "list-outline", active: "list" },
   { key: "people", label: "People", icon: "people-outline", active: "people" },
   { key: "settings", label: "Settings", icon: "settings-outline", active: "settings" },
@@ -44,7 +50,9 @@ const tabs: { key: TabKey; label: string; icon: keyof typeof Ionicons.glyphMap; 
 export default function App() {
   return (
     <StoreProvider>
-      <Navigator />
+      <AlertProvider>
+        <Navigator />
+      </AlertProvider>
     </StoreProvider>
   );
 }
@@ -91,6 +99,7 @@ function Navigator() {
         </View>
         {top ? null : <TabBar tab={tab} onTab={goToTab} />}
       </SafeAreaView>
+      <AlertOverlay onOpenCall={(id) => push({ name: "callDetail", id })} />
     </View>
   );
 }
@@ -113,12 +122,20 @@ function Tabbed({
           onOpenPeople={() => onTab("people")}
         />
       );
+    case "live":
+      // No back gesture out of a tab, so "back" is the way it came in.
+      return <LiveCall onBack={() => onTab("shield")} />;
     case "activity":
       return <Activity onOpenCall={(id) => onPush({ name: "callDetail", id })} />;
     case "people":
       return <People onAddGuardian={() => onPush({ name: "addGuardian" })} />;
     case "settings":
-      return <Settings onOpenPrivacy={() => onPush({ name: "privacy" })} />;
+      return (
+        <Settings
+          onOpenPrivacy={() => onPush({ name: "privacy" })}
+          onOpenAlerts={() => onPush({ name: "alerts" })}
+        />
+      );
   }
 }
 
@@ -130,6 +147,8 @@ function Stacked({ route, onBack }: { route: Route; onBack: () => void }) {
       return <AddGuardian onDone={onBack} />;
     case "privacy":
       return <Privacy onBack={onBack} />;
+    case "alerts":
+      return <Alerts onBack={onBack} />;
   }
 }
 

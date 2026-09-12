@@ -38,6 +38,8 @@ type State = {
 
 type Action =
   | { type: "toggleProtection" }
+  /** A finished call, pushed in by the detection engine. Newest first. */
+  | { type: "logCall"; call: CallRecord }
   | { type: "markSafe"; id: string }
   | { type: "report"; id: string }
   | { type: "addGuardian"; name: string; relationship: string }
@@ -169,6 +171,12 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "toggleProtection":
       return { ...state, protectionOn: !state.protectionOn };
+
+    // The seam the README promises: the engine pushes a record and every
+    // screen picks it up unchanged. Prepended, because Activity and the
+    // Shield's "recent" list both read the front of this array as newest.
+    case "logCall":
+      return { ...state, calls: [action.call, ...state.calls] };
 
     // Marking safe is the user overruling the model. It clears the verdict and
     // the signals with it — leaving them would say "we still think you're wrong".
