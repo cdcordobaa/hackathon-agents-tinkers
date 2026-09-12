@@ -5,6 +5,11 @@ Workspace for the AI Tinkerers **"Agents, Everywhere"** hackathon, 12–13 Septe
 Four projects that share one theme: putting an agent where the conversation already is —
 in a browser, in Slack, in a call, on a phone.
 
+The planned mobile scam-protection workflow is defined in the
+[phased project specification](./docs/scam-protection-specification.md), covering
+Twilio call validation, live transcription, alerts, critical-risk termination,
+and incident reporting before implementation.
+
 ## Projects
 
 | Folder | What it is |
