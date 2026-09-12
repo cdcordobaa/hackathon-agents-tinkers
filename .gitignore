@@ -1,0 +1,50 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Secrets — .env.example files are intentionally kept
+.env
+.env.*
+!.env.example
+
+# Next.js
+.next/
+out/
+
+# Expo / React Native
+.expo/
+.expo-shared/
+dist/
+web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.metro-health-check*
+
+# Native builds
+ios/Pods/
+ios/build/
+ios/.xcode.env.local
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+
+# Build output
+build/
+*.tsbuildinfo
+
+# Logs
+npm-debug.*
+yarn-error.*
+*.log
+
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+*.swp
