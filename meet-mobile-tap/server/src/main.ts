@@ -40,7 +40,13 @@ function unavailableAnalyzerClient(): SessionAnalyzerOptions["client"] {
 /** Build the legacy session registry without binding a port or requiring a model key. */
 export function createSessionRuntime(env: NodeJS.ProcessEnv = process.env): SessionRuntime {
   const defaultTransport = transportFromEnv(env.DEFAULT_TRANSPORT);
-  const replaySpeed = Number(env.REPLAY_SPEED) || 8;
+  // Real time, deliberately. The scripted call is 33.5s of gaps, and the
+  // analyzer ticks every 15s — so at the old default of 8x the whole call was
+  // over in 4.2s, no pass ever ran while the session was `running`, and the
+  // only profile came from the final flush. A person watching got a transcript
+  // and no verdict, and the alert overlay could never fire at all. Speed is
+  // still overridable for anyone who wants the fixture to rush past.
+  const replaySpeed = Number(env.REPLAY_SPEED) || 1;
   let analyzer: SessionAnalyzerOptions;
   let analysisConfigured = true;
   let modelDescription: string;
