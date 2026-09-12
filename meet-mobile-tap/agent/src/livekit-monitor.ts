@@ -33,7 +33,10 @@ const SAMPLE_RATE = 24_000;
 const SNAPSHOT_INTERVAL_MS = 1_000;
 const AUDIO_HEALTH_MS = 2_000;
 const AUDIBLE_RMS = 100;
-const TRANSCRIBE_TIMEOUT_MS = 12_000;
+// Gemini's audio requests can take longer than a 12-second source chunk,
+// particularly when two speakers finish together or the free tier is busy.
+// The shutdown controller still interrupts this immediately when a call ends.
+const TRANSCRIBE_TIMEOUT_MS = Number(process.env.TRANSCRIBE_TIMEOUT_MS) || 45_000;
 const ANALYSIS_TIMEOUT_MS = 15_000;
 const CONNECT_TIMEOUT_MS = 10_000;
 const STOP_MODEL_BUDGET_MS = 5_000;
@@ -229,9 +232,9 @@ export async function createLiveKitMonitor(
       })
     : undefined;
 
-  const transcriptionQueue = new SpeakerTaskQueue(1, (_speakerId) => {
+  const transcriptionQueue = new SpeakerTaskQueue(1, (speakerId, error) => {
     degradation.add("Transcription unavailable after an audio request failed.");
-    log("Transcription request failed; the affected audio chunk was omitted.");
+    log(`Transcription request failed for ${safeLabel(speakerId)}: ${safeLabel(error.message)}. The affected audio chunk was omitted.`);
     requestPublish(true);
   });
 
@@ -251,6 +254,7 @@ export async function createLiveKitMonitor(
       // Consent can be revoked while a request is in flight.
       const current = speakerDetails.get(chunk.speaker);
       if (!text || !current?.consented) return;
+      degradation.delete("Transcription unavailable after an audio request failed.");
       transcript.final(analysisSpeakerLabel(current), text);
       turns.push({
         id: `${chunk.speaker}:${++turnSequence}`,
