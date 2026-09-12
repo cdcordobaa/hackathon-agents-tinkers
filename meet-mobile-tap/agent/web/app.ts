@@ -20,8 +20,14 @@ import {
   initialRoomSession,
   type RoomSessionState,
 } from "../../shared/room-session.ts";
+import {
+  RecordedCallPlayback,
+  prepareRecordings,
+  type PreparedRecordings,
+  type RecordingPlaybackState,
+} from "./recorded-call.ts";
 
-type AppMode = "setup" | "live" | "preview";
+type AppMode = "setup" | "live" | "preview" | "recorded";
 type Health = {
   livekitConfigured: boolean;
   analysisConfigured: boolean;
@@ -50,13 +56,23 @@ const ui = {
   environmentBadge: element<HTMLElement>("environment-badge"),
   joinForm: element<HTMLFormElement>("join-form"),
   joinButton: element<HTMLButtonElement>("join-button"),
+  joinButtonLabel: element<HTMLElement>("join-button-label"),
+  joinDescription: element<HTMLElement>("join-description"),
   roomName: element<HTMLInputElement>("room-name"),
   displayName: element<HTMLInputElement>("display-name"),
+  displayNameField: element<HTMLElement>("display-name-field"),
   role: element<HTMLSelectElement>("role"),
+  roleField: element<HTMLElement>("role-field"),
+  recordedFields: element<HTMLElement>("recorded-fields"),
+  counterpartyAudio: element<HTMLInputElement>("counterparty-audio"),
+  subjectAudio: element<HTMLInputElement>("subject-audio"),
   consent: element<HTMLInputElement>("consent"),
+  consentTitle: element<HTMLElement>("consent-title"),
+  consentDetail: element<HTMLElement>("consent-detail"),
   setupError: element<HTMLElement>("setup-error"),
   previewButton: element<HTMLButtonElement>("preview-button"),
   previewBanner: element<HTMLElement>("preview-banner"),
+  recordedBanner: element<HTMLElement>("recorded-banner"),
   callStateLine: element<HTMLElement>("call-state-line"),
   callTitle: element<HTMLElement>("call-title"),
   roomSummary: element<HTMLElement>("room-summary"),
@@ -69,6 +85,16 @@ const ui = {
   participantCount: element<HTMLElement>("participant-count"),
   participantList: element<HTMLElement>("participant-list"),
   participantEmpty: element<HTMLElement>("participant-empty"),
+  callControls: element<HTMLElement>("call-controls"),
+  recordedControls: element<HTMLElement>("recorded-controls"),
+  recordedPhase: element<HTMLElement>("recorded-phase"),
+  recordedProgressTime: element<HTMLElement>("recorded-progress-time"),
+  recordedDetail: element<HTMLElement>("recorded-detail"),
+  recordedProgressFill: element<HTMLElement>("recorded-progress-fill"),
+  startRecordings: element<HTMLButtonElement>("start-recordings"),
+  recordedAudioButton: element<HTMLButtonElement>("recorded-audio-button"),
+  stopRecordings: element<HTMLButtonElement>("stop-recordings"),
+  replayRecordings: element<HTMLButtonElement>("replay-recordings"),
   muteButton: element<HTMLButtonElement>("mute-button"),
   muteLabel: element<HTMLElement>("mute-label"),
   audioButton: element<HTMLButtonElement>("audio-button"),
@@ -94,6 +120,7 @@ const ui = {
 
 const state: {
   mode: AppMode;
+  setupMode: "live" | "recorded";
   room?: Room;
   roomName: string;
   displayName: string;
@@ -106,10 +133,14 @@ const state: {
   frameTimer?: number;
   previewTimer?: number;
   previewStage: number;
+  preparedRecordings?: PreparedRecordings;
+  recordedPlayback?: RecordedCallPlayback;
+  recordedPlaybackState?: RecordingPlaybackState;
   health: Health | null;
   attachedTracks: Map<string, { track: RemoteTrack; audio: HTMLAudioElement; participantId: string }>;
 } = {
   mode: "setup",
+  setupMode: "live",
   roomName: "",
   displayName: "",
   role: "counterparty",
@@ -253,8 +284,19 @@ function configureRoom(room: Room): void {
     renderCall();
   });
   room.on(RoomEvent.Disconnected, () => {
-    if (state.mode !== "live") return;
-    showSetup("The live call ended. You can rejoin when the room is ready.");
+    if (state.room !== room) return;
+    if (state.mode === "live") {
+      showSetup("The live call ended. You can rejoin when the room is ready.");
+    } else if (state.mode === "recorded") {
+      const durationMs = state.recordedPlaybackState?.durationMs ?? state.preparedRecordings?.durationMs ?? 0;
+      state.recordedPlaybackState = recordingState(
+        "failed",
+        durationMs,
+        "The observer lost its room connection. Replay in a fresh room.",
+      );
+      void state.recordedPlayback?.stop();
+      renderCall();
+    }
   });
 }
 
@@ -289,6 +331,130 @@ function detachAllAudio(): void {
   ui.remoteAudio.replaceChildren();
 }
 
+function renderSetupMode(): void {
+  const recorded = state.setupMode === "recorded";
+  ui.displayNameField.hidden = recorded;
+  ui.roleField.hidden = recorded;
+  ui.recordedFields.hidden = !recorded;
+  setText(
+    ui.joinDescription,
+    recorded
+      ? "Prepare two local test recordings, then start them from the call dashboard."
+      : "Your microphone starts only after you join.",
+  );
+  setText(ui.joinButtonLabel, recorded ? "Prepare recorded call" : "Join live call");
+  setText(
+    ui.consentTitle,
+    recorded
+      ? "I have permission to analyze both test recordings."
+      : "Everyone on this call has agreed to be monitored.",
+  );
+  setText(
+    ui.consentDetail,
+    recorded
+      ? "Their audio will be sent through LiveKit for real transcription and Gemini analysis after you start."
+      : "Audio will be transcribed and analyzed during the call.",
+  );
+}
+
+function recordingState(
+  phase: RecordingPlaybackState["phase"],
+  durationMs: number,
+  detail: string,
+): RecordingPlaybackState {
+  return { phase, durationMs, detail, elapsedMs: 0 };
+}
+
+function createRecordedPlayback(prepared: PreparedRecordings): RecordedCallPlayback {
+  let playback: RecordedCallPlayback;
+  playback = new RecordedCallPlayback(prepared, (next) => {
+    if (state.recordedPlayback !== playback) return;
+    const previousPhase = state.recordedPlaybackState?.phase;
+    state.recordedPlaybackState = next;
+    if (state.mode !== "recorded") return;
+    renderRecordedControls();
+    if (next.phase !== previousPhase) renderCall();
+  });
+  return playback;
+}
+
+async function prepareRecordedCall(): Promise<void> {
+  setError(ui.setupError);
+  const roomName = ui.roomName.value.trim();
+  const counterparty = ui.counterpartyAudio.files?.[0];
+  const subject = ui.subjectAudio.files?.[0];
+  if (!ROOM_NAME_PATTERN.test(roomName)) {
+    setError(ui.setupError, "Use 1–64 letters, numbers, hyphens, or underscores for the room name.");
+    ui.roomName.focus();
+    return;
+  }
+  if (!counterparty || !subject) {
+    setError(ui.setupError, "Choose one complete bank-agent recording and one complete protected-person recording.");
+    (counterparty ? ui.subjectAudio : ui.counterpartyAudio).focus();
+    return;
+  }
+  if (!ui.consent.checked) {
+    setError(ui.setupError, "Confirm you have permission to analyze both recordings before continuing.");
+    ui.consent.focus();
+    return;
+  }
+
+  ui.joinButton.disabled = true;
+  setText(ui.joinButtonLabel, "Preparing audio…");
+  try {
+    const prepared = await prepareRecordings({ counterparty, subject });
+    state.mode = "recorded";
+    state.roomName = roomName;
+    state.displayName = "Demo observer";
+    state.role = "subject";
+    state.identity = "";
+    state.startedAt = Date.now();
+    state.roomSession = initialRoomSession();
+    state.previewSnapshot = null;
+    state.lastRenderedFreshness = null;
+    state.preparedRecordings = prepared;
+    state.recordedPlaybackState = recordingState(
+      "ready",
+      prepared.durationMs,
+      "Join this room from mobile if desired, then start both recordings.",
+    );
+    state.recordedPlayback = createRecordedPlayback(prepared);
+    showCallView();
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    setError(ui.setupError, `Could not prepare the recordings: ${message}`);
+  } finally {
+    ui.joinButton.disabled = false;
+    setText(ui.joinButtonLabel, "Prepare recorded call");
+  }
+}
+
+async function requestJoinCredentials(options: {
+  roomName: string;
+  identity: string;
+  displayName: string;
+  role: "subject" | "counterparty";
+}): Promise<JoinResponse> {
+  const response = await fetch("/api/join", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ ...options, consent: true }),
+    signal: AbortSignal.timeout(15_000),
+  });
+  const value: unknown = await response.json().catch(() => null);
+  if (!response.ok) {
+    const detail = value && typeof value === "object" && "error" in value
+      ? String((value as { error: unknown }).error)
+      : `Join request returned ${response.status}`;
+    throw new Error(detail);
+  }
+  if (!isJoinResponse(value)) throw new Error("The join response was incomplete.");
+  if (value.monitorIdentity !== MONITOR_IDENTITY) {
+    throw new Error("The server returned an unexpected monitor identity.");
+  }
+  return value;
+}
+
 async function joinLiveCall(): Promise<void> {
   setError(ui.setupError);
   const roomName = ui.roomName.value.trim();
@@ -316,25 +482,11 @@ async function joinLiveCall(): Promise<void> {
   }
 
   ui.joinButton.disabled = true;
-  ui.joinButton.firstElementChild!.textContent = "Joining…";
+  setText(ui.joinButtonLabel, "Joining…");
 
   const identity = safeIdentity(displayName);
   try {
-    const response = await fetch("/api/join", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ roomName, identity, displayName, role, consent: true }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    const value: unknown = await response.json().catch(() => null);
-    if (!response.ok) {
-      const detail = value && typeof value === "object" && "error" in value
-        ? String((value as { error: unknown }).error)
-        : `Join request returned ${response.status}`;
-      throw new Error(detail);
-    }
-    if (!isJoinResponse(value)) throw new Error("The join response was incomplete.");
-    if (value.monitorIdentity !== MONITOR_IDENTITY) throw new Error("The server returned an unexpected monitor identity.");
+    const value = await requestJoinCredentials({ roomName, identity, displayName, role });
 
     const room = new Room({ adaptiveStream: true, dynacast: true });
     configureRoom(room);
@@ -373,17 +525,124 @@ async function joinLiveCall(): Promise<void> {
     setError(ui.setupError, `Could not join the live call: ${message}`);
   } finally {
     ui.joinButton.disabled = false;
-    ui.joinButton.firstElementChild!.textContent = "Join live call";
+    setText(ui.joinButtonLabel, "Join live call");
   }
+}
+
+async function connectRecordedObserver(playback: RecordedCallPlayback): Promise<void> {
+  const identity = safeIdentity("recording-observer");
+  const credentials = await requestJoinCredentials({
+    roomName: state.roomName,
+    identity,
+    displayName: "Demo observer",
+    role: "subject",
+  });
+  if (state.mode !== "recorded" || state.recordedPlayback !== playback) {
+    throw new Error("Recorded playback was cancelled.");
+  }
+  const room = new Room({ adaptiveStream: true, dynacast: false });
+  configureRoom(room);
+  state.room = room;
+  state.identity = credentials.identity;
+  await room.connect(credentials.url, credentials.token, { autoSubscribe: true });
+  if (state.mode !== "recorded" || state.recordedPlayback !== playback) {
+    state.room = undefined;
+    await room.disconnect();
+    throw new Error("Recorded playback was cancelled.");
+  }
+  try {
+    await room.startAudio();
+  } catch {
+    // The visible Enable audio control handles browsers that need another gesture.
+  }
+}
+
+async function startRecordedCall(): Promise<void> {
+  const playback = state.recordedPlayback;
+  const prepared = state.preparedRecordings;
+  if (state.mode !== "recorded" || !playback || !prepared ||
+    state.recordedPlaybackState?.phase !== "ready") return;
+
+  // AudioContext.resume() must be the first awaited work in this click handler.
+  const unlocked = playback.unlockAudio();
+  state.recordedPlaybackState = recordingState(
+    "connecting",
+    prepared.durationMs,
+    "Joining as a silent observer before the two recorded voices enter.",
+  );
+  renderCall();
+  try {
+    await unlocked;
+    await connectRecordedObserver(playback);
+    await playback.connect(window.location.origin, state.roomName);
+    playback.play();
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    if (state.recordedPlayback === playback) {
+      await playback.stop();
+      await disconnectRecordedObserver();
+      state.recordedPlaybackState = recordingState("failed", prepared.durationMs, message);
+      renderCall();
+    }
+  }
+}
+
+async function disconnectRecordedObserver(): Promise<void> {
+  const room = state.room;
+  state.room = undefined;
+  state.identity = "";
+  detachAllAudio();
+  if (room && room.state !== ConnectionState.Disconnected) await room.disconnect();
+  state.roomSession = initialRoomSession();
+  state.lastRenderedFreshness = null;
+}
+
+async function exitRecordedCall(): Promise<void> {
+  const playback = state.recordedPlayback;
+  state.recordedPlayback = undefined;
+  if (playback) await playback.stop();
+  await disconnectRecordedObserver();
+  state.preparedRecordings = undefined;
+  state.recordedPlaybackState = undefined;
+  showSetup();
+}
+
+function freshRecordedRoom(roomName: string): string {
+  const suffix = Date.now().toString(36).slice(-4);
+  return `${roomName.slice(0, 59)}-${suffix}`;
+}
+
+async function replayRecordedCall(): Promise<void> {
+  const prepared = state.preparedRecordings;
+  const retired = state.recordedPlayback;
+  if (state.mode !== "recorded" || !prepared || !retired) return;
+  state.recordedPlayback = undefined;
+  await retired.stop();
+  await disconnectRecordedObserver();
+  state.roomName = freshRecordedRoom(state.roomName);
+  ui.roomName.value = state.roomName;
+  state.startedAt = Date.now();
+  state.recordedPlaybackState = recordingState(
+    "ready",
+    prepared.durationMs,
+    "Fresh room prepared. Join it from mobile if desired, then start the recordings.",
+  );
+  state.recordedPlayback = createRecordedPlayback(prepared);
+  renderCall();
+  renderFrame();
 }
 
 function showCallView(): void {
   ui.setupView.hidden = true;
   ui.callView.hidden = false;
   ui.previewBanner.hidden = state.mode !== "preview";
+  ui.recordedBanner.hidden = state.mode !== "recorded";
   ui.environmentBadge.hidden = false;
   ui.environmentBadge.className = `environment-badge ${state.mode === "preview" ? "preview" : "live"}`;
-  setText(ui.environmentBadge, state.mode === "preview" ? "Simulated preview" : "Live room");
+  setText(
+    ui.environmentBadge,
+    state.mode === "preview" ? "Simulated preview" : state.mode === "recorded" ? "Recorded analysis" : "Live room",
+  );
   setError(ui.callError);
   if (state.frameTimer) window.clearInterval(state.frameTimer);
   state.frameTimer = window.setInterval(renderFrame, 200);
@@ -405,6 +664,9 @@ function cleanupSession(): void {
   if (state.previewTimer) window.clearInterval(state.previewTimer);
   state.frameTimer = undefined;
   state.previewTimer = undefined;
+  const playback = state.recordedPlayback;
+  state.recordedPlayback = undefined;
+  if (playback) void playback.stop();
   detachAllAudio();
   const room = state.room;
   state.room = undefined;
@@ -412,6 +674,8 @@ function cleanupSession(): void {
   state.roomSession = initialRoomSession();
   state.previewSnapshot = null;
   state.lastRenderedFreshness = null;
+  state.preparedRecordings = undefined;
+  state.recordedPlaybackState = undefined;
 }
 
 function activeSnapshot(): CallSnapshot | null {
@@ -431,8 +695,50 @@ function renderFrame(): void {
   setText(ui.elapsedTime, formatElapsed(Date.now() - state.startedAt));
   renderParticipants();
   renderFreshness();
+  if (state.mode === "recorded") renderRecordedControls();
   const currentFreshness = snapshotIsCurrent();
   if (activeSnapshot() && currentFreshness !== state.lastRenderedFreshness) renderCall();
+}
+
+function recordedPhaseLabel(phase: RecordingPlaybackState["phase"]): string {
+  const labels: Record<RecordingPlaybackState["phase"], string> = {
+    connecting: "Connecting recorded voices",
+    ready: "Recordings prepared",
+    playing: "Playback in progress",
+    processing: "Waiting for final analysis",
+    stopped: "Playback stopped",
+    failed: "Playback failed",
+  };
+  return labels[phase];
+}
+
+function renderRecordedControls(): void {
+  const playback = state.recordedPlaybackState;
+  if (!playback) return;
+  const snapshot = activeSnapshot();
+  setText(
+    ui.recordedPhase,
+    playback.phase === "processing" && snapshot?.profile
+      ? "Last assessment available"
+      : recordedPhaseLabel(playback.phase),
+  );
+  setText(
+    ui.recordedProgressTime,
+    `${formatElapsed(playback.elapsedMs)} / ${formatElapsed(playback.durationMs)}`,
+  );
+  setText(
+    ui.recordedDetail,
+    playback.phase === "processing" && snapshot?.profile
+      ? `${playback.detail} The last assessment may still update until you reset this room.`
+      : playback.detail,
+  );
+  const progress = playback.durationMs > 0 ? Math.min(1, playback.elapsedMs / playback.durationMs) : 0;
+  ui.recordedProgressFill.style.transform = `scaleX(${progress})`;
+  ui.startRecordings.hidden = playback.phase !== "ready";
+  ui.stopRecordings.hidden = playback.phase === "stopped";
+  ui.replayRecordings.hidden = !(
+    playback.phase === "processing" || playback.phase === "failed" || snapshot?.status === "degraded"
+  );
 }
 
 function renderCall(): void {
@@ -440,15 +746,32 @@ function renderCall(): void {
   const snapshot = activeSnapshot();
   const room = state.room;
   const isPreview = state.mode === "preview";
+  const isRecorded = state.mode === "recorded";
+  const recordingPhase = state.recordedPlaybackState?.phase ?? "ready";
   const connected = isPreview || room?.state === ConnectionState.Connected;
   const visible = getVisibleParticipants();
   const monitorState = !snapshot ? "monitor waiting" : snapshotIsCurrent() ? snapshot.status : "monitor update stale";
 
-  setText(ui.callTitle, connected ? snapshot?.status === "ended" ? "Call ended" : "Call in progress" : "Joining call…");
+  const recordedTitle: Record<RecordingPlaybackState["phase"], string> = {
+    connecting: "Joining recorded call…",
+    ready: "Recorded call ready",
+    playing: "Recorded call playing",
+    processing: "Processing final analysis",
+    stopped: "Recorded call stopped",
+    failed: "Recorded call needs attention",
+  };
+  setText(
+    ui.callTitle,
+    isRecorded
+      ? recordedTitle[recordingPhase]
+      : connected ? snapshot?.status === "ended" ? "Call ended" : "Call in progress" : "Joining call…",
+  );
   setText(
     ui.callStateLine,
     isPreview
       ? "●  Simulated session playing"
+      : isRecorded
+        ? `●  Recorded files · ${recordedPhaseLabel(recordingPhase)}`
       : connected
         ? `●  Live · ${monitorState}`
         : `●  ${room?.state ?? "connecting"}`,
@@ -456,6 +779,8 @@ function renderCall(): void {
   setText(ui.roomSummary, `${state.roomName} · ${visible.length} ${visible.length === 1 ? "person" : "people"}`);
   setText(ui.shareRoomName, state.roomName);
   ui.roomShare.hidden = isPreview;
+  ui.callControls.hidden = isRecorded;
+  ui.recordedControls.hidden = !isRecorded;
   setText(ui.participantCount, String(visible.length));
   setText(
     ui.monitorDetail,
@@ -468,11 +793,17 @@ function renderCall(): void {
   renderAudioControl();
   renderAssessment();
   renderTranscript();
+  if (isRecorded) renderRecordedControls();
 
   ui.muteButton.disabled = isPreview || !connected;
   ui.leaveButton.disabled = false;
   setText(ui.leaveButton.lastElementChild as HTMLElement, isPreview ? "Exit preview" : "Leave");
-  if (isPreview) {
+  if (isRecorded) {
+    setText(
+      ui.participantEmpty,
+      recordingPhase === "ready" ? "The two recorded voices join when you start playback." : "Waiting for recorded voices…",
+    );
+  } else if (isPreview) {
     ui.muteButton.setAttribute("aria-pressed", "false");
     setText(ui.muteLabel, "Mic simulated");
   } else if (room) {
@@ -510,7 +841,12 @@ function renderParticipants(): void {
   if (state.mode === "setup") return;
   const participants = getVisibleParticipants();
   const movingAudio = participants.some((person) => person.hasAudio && person.level > 0.015);
-  setText(ui.audioProof, movingAudio ? "Voice activity detected" : "Connected · waiting for voice activity");
+  setText(
+    ui.audioProof,
+    state.mode === "recorded" && state.recordedPlaybackState?.phase === "ready"
+      ? "Silent observer · microphone stays off"
+      : movingAudio ? "Voice activity detected" : "Connected · waiting for voice activity",
+  );
   ui.participantList.replaceChildren(...participants.map(participantNode));
   ui.participantEmpty.hidden = participants.length > 0;
 }
@@ -523,7 +859,9 @@ function participantNode(person: VisibleParticipant): HTMLElement {
   identity.append(make("span", "participant-avatar", initials));
   const copy = make("span", "participant-copy");
   copy.append(make("span", "participant-name", `${person.name}${person.isLocal ? " (you)" : ""}`));
-  const role = person.role === "subject" ? "Protected caller" : person.role === "counterparty" ? "Other caller" : "Participant";
+  const role = person.isLocal && state.mode === "recorded"
+    ? "Silent observer"
+    : person.role === "subject" ? "Protected caller" : person.role === "counterparty" ? "Other caller" : "Participant";
   copy.append(make("span", "participant-meta", `${role} · ${person.consented ? "consent confirmed" : "consent pending"}`));
   identity.append(copy);
   const level = Math.round(Math.min(1, Math.max(0, person.level)) * 100);
@@ -539,8 +877,9 @@ function participantNode(person: VisibleParticipant): HTMLElement {
 }
 
 function renderAudioControl(): void {
-  const shouldShow = state.mode === "live" && Boolean(state.room) && !state.room!.canPlaybackAudio;
-  ui.audioButton.hidden = !shouldShow;
+  const shouldShow = Boolean(state.room) && !state.room!.canPlaybackAudio;
+  ui.audioButton.hidden = !(state.mode === "live" && shouldShow);
+  ui.recordedAudioButton.hidden = !(state.mode === "recorded" && shouldShow);
 }
 
 function renderFreshness(): void {
@@ -555,6 +894,27 @@ function renderFreshness(): void {
     ui.analysisFreshness.classList.add("current");
     setText(ui.analysisFreshness, "Simulated update");
     return;
+  }
+  if (state.mode === "recorded") {
+    const phase = state.recordedPlaybackState?.phase;
+    const currentProfile = state.room?.state === ConnectionState.Connected
+      ? currentRoomProfile(state.roomSession)
+      : null;
+    if (snapshot.profile && (phase !== "playing" || !currentProfile)) {
+      ui.analysisFreshness.classList.add("stale");
+      setText(ui.analysisFreshness, "Last assessment");
+      return;
+    }
+    if (phase === "processing") {
+      ui.analysisFreshness.classList.add("current");
+      setText(ui.analysisFreshness, "Awaiting final assessment");
+      return;
+    }
+    if (phase === "failed" || phase === "stopped") {
+      ui.analysisFreshness.classList.add("stale");
+      setText(ui.analysisFreshness, "Recorded run stopped");
+      return;
+    }
   }
   if (snapshot.status === "ended") {
     ui.analysisFreshness.classList.add("stale");
@@ -582,14 +942,41 @@ function renderAssessment(): void {
   const now = Date.now();
   const current = snapshotIsCurrent(now);
   state.lastRenderedFreshness = current;
+  const currentProfile = state.room?.state === ConnectionState.Connected
+    ? currentRoomProfile(state.roomSession, now)
+    : null;
+  const recordingPhase = state.recordedPlaybackState?.phase;
+  const historical = state.mode === "recorded" && Boolean(snapshot?.profile) &&
+    (recordingPhase !== "playing" || currentProfile === null);
   const profile = state.mode === "preview"
     ? snapshot?.profile ?? null
-    : state.room?.state === ConnectionState.Connected ? currentRoomProfile(state.roomSession, now) : null;
+    : historical ? snapshot!.profile : currentProfile;
   const degraded = snapshot?.status === "degraded";
   const ended = snapshot?.status === "ended";
 
   renderFreshness();
-  if (!snapshot) {
+  if (historical) {
+    setText(
+      ui.analysisState,
+      recordingPhase === "processing"
+        ? "Playback complete · last received assessment"
+        : "Monitor is waiting · showing the last assessment",
+    );
+  } else if (state.mode === "recorded" && !profile) {
+    const recordedStates: Partial<Record<RecordingPlaybackState["phase"], string>> = {
+      ready: "Recordings prepared · waiting to start",
+      connecting: "Connecting the observer and recorded voices",
+      playing: "Listening for analyzable speech",
+      processing: "Recordings finished · waiting for final analysis",
+      failed: "Recorded playback stopped before a current assessment",
+      stopped: "Recorded playback stopped",
+    };
+    setText(
+      ui.analysisState,
+      degraded ? snapshot?.detail || "Recorded-call monitor is degraded"
+        : recordedStates[recordingPhase ?? "ready"] ?? "Waiting for the recorded call",
+    );
+  } else if (!snapshot) {
     setText(ui.analysisState, state.mode === "preview" ? "Loading sample assessment" : "Waiting for the monitor to publish");
   } else if (!current) {
     setText(ui.analysisState, "Monitor updates have stopped");
@@ -604,7 +991,29 @@ function renderAssessment(): void {
   }
 
   if (!profile) {
-    if (ended) {
+    if (state.mode === "recorded") {
+      if (degraded) {
+        renderUnavailableRisk(
+          "The recorded-call monitor is unavailable.",
+          snapshot?.detail || "Reset the run and replay in a fresh room.",
+        );
+      } else if (recordingPhase === "processing") {
+        renderUnavailableRisk(
+          "Recordings finished. Waiting for the final assessment.",
+          "Keep this room open while transcription and analysis finish.",
+        );
+      } else if (recordingPhase === "ready") {
+        renderUnavailableRisk(
+          "Both recordings are prepared in the requested order.",
+          "Join this room from mobile if desired, then start the recordings.",
+        );
+      } else {
+        renderUnavailableRisk(
+          "No current recorded-call assessment is available.",
+          state.recordedPlaybackState?.detail ?? "Reset the run and try again in a fresh room.",
+        );
+      }
+    } else if (ended) {
       renderUnavailableRisk(
         "The call has ended. Live guidance is unavailable.",
         "Start a new live call to receive a current assessment.",
@@ -623,7 +1032,7 @@ function renderAssessment(): void {
     }
     return;
   }
-  renderRisk(profile);
+  renderRisk(profile, historical);
 }
 
 function renderUnavailableRisk(headline: string, advice?: string): void {
@@ -642,15 +1051,17 @@ function renderUnavailableRisk(headline: string, advice?: string): void {
   ui.evidenceEmpty.hidden = false;
 }
 
-function renderRisk(profile: RiskProfile): void {
+function renderRisk(profile: RiskProfile, historical = false): void {
   const visualRisk = profile.risk === "none" ? "low" : profile.risk;
   ui.riskDisplay.className = `risk-display risk-${visualRisk}`;
-  setText(ui.riskBand, profile.risk === "none" ? "No risk found" : `${titleCase(profile.risk)} risk`);
+  const band = profile.risk === "none" ? "No risk found" : `${titleCase(profile.risk)} risk`;
+  setText(ui.riskBand, historical ? `Last · ${band}` : band);
   setText(ui.riskScore, String(profile.score));
   setText(ui.riskHeadline, profile.headline);
   setText(ui.riskChange, profile.changed);
   ui.riskScaleFill.style.transform = `scaleX(${profile.score / 100})`;
-  setText(ui.riskAdvice, profile.advice || "No action is recommended from the current evidence.");
+  const advice = profile.advice || "No action is recommended from the available evidence.";
+  setText(ui.riskAdvice, historical ? `Last assessment: ${advice}` : advice);
   ui.evidenceList.replaceChildren(...profile.signals.map((signal) => {
     const item = make("article", "evidence-item");
     item.append(make("span", "evidence-type", titleCase(signal.type)));
@@ -779,12 +1190,30 @@ function previewSnapshot(stage: number, startedAt: number): CallSnapshot {
 
 ui.joinForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  void joinLiveCall();
+  if (state.setupMode === "recorded") void prepareRecordedCall();
+  else void joinLiveCall();
 });
+for (const choice of document.querySelectorAll<HTMLInputElement>('input[name="callMode"]')) {
+  choice.addEventListener("change", () => {
+    if (!choice.checked) return;
+    state.setupMode = choice.value === "recorded" ? "recorded" : "live";
+    if (state.setupMode === "recorded" && ui.roomName.value === "demo") ui.roomName.value = "audio-demo";
+    if (state.setupMode === "live" && ui.roomName.value === "audio-demo") ui.roomName.value = "demo";
+    ui.consent.checked = false;
+    setError(ui.setupError);
+    renderSetupMode();
+  });
+}
 ui.previewButton.addEventListener("click", beginPreview);
-ui.leaveButton.addEventListener("click", () => showSetup());
+ui.leaveButton.addEventListener("click", () => {
+  if (state.mode === "recorded") void exitRecordedCall();
+  else showSetup();
+});
+ui.startRecordings.addEventListener("click", () => void startRecordedCall());
+ui.stopRecordings.addEventListener("click", () => void exitRecordedCall());
+ui.replayRecordings.addEventListener("click", () => void replayRecordedCall());
 ui.copyRoomLink.addEventListener("click", async () => {
-  if (state.mode !== "live" || !ROOM_NAME_PATTERN.test(state.roomName)) return;
+  if ((state.mode !== "live" && state.mode !== "recorded") || !ROOM_NAME_PATTERN.test(state.roomName)) return;
   try {
     await navigator.clipboard.writeText(browserRoomLink(state.roomName));
     setText(ui.copyRoomLink, "Link copied");
@@ -816,9 +1245,24 @@ ui.audioButton.addEventListener("click", async () => {
   }
   renderAudioControl();
 });
-window.addEventListener("beforeunload", () => state.room?.disconnect());
+ui.recordedAudioButton.addEventListener("click", async () => {
+  if (!state.room) return;
+  try {
+    await state.room.startAudio();
+    setError(ui.callError);
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    setError(ui.callError, `Observer audio is still blocked: ${message}. Allow sound for this site and try again.`);
+  }
+  renderAudioControl();
+});
+window.addEventListener("beforeunload", () => {
+  void state.recordedPlayback?.stop();
+  state.room?.disconnect();
+});
 
 const requestedRoom = new URL(window.location.href).searchParams.get("room")?.trim();
 if (requestedRoom && ROOM_NAME_PATTERN.test(requestedRoom)) ui.roomName.value = requestedRoom;
 
+renderSetupMode();
 void loadHealth();

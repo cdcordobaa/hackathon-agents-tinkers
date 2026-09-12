@@ -74,3 +74,24 @@ refiere al propio teléfono.
 
 Salir desde el móvil desconecta ese participante. La llamada web puede continuar.
 El resumen móvil contiene lo recibido durante la conexión, no un informe final persistido.
+
+## Usar dos grabaciones para la demostración
+
+En la web, selecciona el modo de llamada grabada y carga un archivo por voz: primero
+el otro interlocutor y después la persona protegida. Cada archivo representa una
+intervención completa. Se reproducen en ese orden, separados por una pausa breve;
+si contienen varias intervenciones mezcladas, prepara primero los turnos correspondientes.
+
+Usa una sala nueva para cada demostración, por ejemplo `audio-demo`, y conecta el móvil
+a esa misma sala antes de iniciar la reproducción. Mantén silenciado el micrófono del
+móvil para evitar que vuelva a capturar las grabaciones que escucha por el altavoz.
+
+La web publica las voces como dos participantes distintos. El micrófono del computador
+permanece apagado y los archivos se decodifican localmente. Al iniciar, el audio viaja
+por LiveKit al monitor y se procesa con Gemini, igual que una conversación en vivo.
+El rótulo de grabación identifica la simulación; la transcripción y el riesgo son reales.
+
+Espera a que termine el procesamiento después de la reproducción. La web identifica
+el último resultado recibido como una evaluación de la grabación; en el móvil puedes
+consultar también el resumen al salir. El botón de salida detiene los participantes
+de grabación, sin cerrar los otros participantes de la sala.
