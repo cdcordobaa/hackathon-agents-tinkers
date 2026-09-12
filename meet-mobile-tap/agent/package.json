@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:web": "esbuild web/app.ts --bundle --format=esm --target=es2022 --outfile=dist/web/app.js",
+    "dev": "npm run build:web && node --env-file-if-exists=../mobile/.env --env-file-if-exists=.env --import tsx src/serve.ts",
+    "dev:local": "LIVEKIT_URL=ws://127.0.0.1:7880 LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=secret npm run dev",
+    "smoke:local": "node --import tsx src/smoke-livekit.ts",
+    "livekit:local": "livekit-server --dev --config livekit-local.yaml",
+    "start": "node --env-file-if-exists=../mobile/.env --env-file-if-exists=.env --import tsx src/serve.ts",
     "replay": "node --env-file-if-exists=../mobile/.env --env-file-if-exists=.env --import tsx src/replay.ts",
     "test": "node --import tsx --test src/*.test.ts",
     "typecheck": "tsc --noEmit",
@@ -12,11 +18,13 @@
   },
   "dependencies": {
     "@livekit/rtc-node": "^1.0.0",
+    "livekit-client": "^2.22.3",
     "livekit-server-sdk": "^2.19.0",
     "openai": "^6.10.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "esbuild": "^0.25.12",
     "tsx": "^4.20.5",
     "typescript": "^5.7.0"
   }

@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#081416" />
+    <meta name="description" content="SecureGuIA live call protection demo" />
+    <title>SecureGuIA · Live call</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <!--
+      THESIS: Make the protection agent feel like a calm third presence in the call, with state and evidence always legible.
+      OWN-WORLD: Deep teal room, mineral cyan signals, warm risk tones, flat bordered instruments, and restrained call controls.
+      STORY: Join with consent, confirm that voices are moving, and act on evidence-backed guidance while the call unfolds.
+      FIRST VIEWPORT: Call state and participants anchor the left; the live risk assessment and transcript carry the wider right side.
+      FORM: Existing call-room control plane, extended for the browser companion; no concept seed was needed for this scoped extension.
+      FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
+    -->
+    <div class="ambient ambient-one" aria-hidden="true"></div>
+    <div class="ambient ambient-two" aria-hidden="true"></div>
+
+    <main class="shell">
+      <header class="topbar">
+        <a class="brand" href="/" aria-label="SecureGuIA home">
+          <span class="brand-mark" aria-hidden="true"><span></span></span>
+          <span>SecureGuIA</span>
+        </a>
+        <div id="environment-badge" class="environment-badge" hidden></div>
+      </header>
+
+      <section id="setup-view" class="setup-view" aria-labelledby="setup-title">
+        <div class="setup-intro">
+          <p class="status-line"><span class="status-dot"></span>Browser call participant</p>
+          <h1 id="setup-title">Enter the call with confidence.</h1>
+          <p class="setup-copy">
+            Join a private LiveKit room as one of the people on the call. SecureGuIA listens with
+            consent, follows the conversation, and surfaces evidence when the story changes.
+          </p>
+          <div class="service-status" aria-label="Service readiness">
+            <div class="service-row">
+              <span id="health-livekit-dot" class="service-dot is-checking"></span>
+              <span>Live call</span>
+              <strong id="health-livekit">Checking…</strong>
+            </div>
+            <div class="service-row">
+              <span id="health-transcription-dot" class="service-dot is-checking"></span>
+              <span>Transcription</span>
+              <strong id="health-transcription">Checking…</strong>
+            </div>
+            <div class="service-row">
+              <span id="health-analysis-dot" class="service-dot is-checking"></span>
+              <span>Risk analysis</span>
+              <strong id="health-analysis">Checking…</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="join-panel">
+          <div class="join-heading">
+            <h2>Join a room</h2>
+            <p>Your microphone starts only after you join.</p>
+          </div>
+
+          <form id="join-form" novalidate>
+            <label class="field">
+              <span>Room name</span>
+              <input id="room-name" name="roomName" value="demo" maxlength="64" autocomplete="off" required />
+            </label>
+            <label class="field">
+              <span>Your name</span>
+              <input id="display-name" name="displayName" value="Alex" maxlength="40" autocomplete="name" required />
+            </label>
+            <label class="field">
+              <span>Your role</span>
+              <select id="role" name="role">
+                <option value="counterparty" selected>Other caller</option>
+                <option value="subject">Person being protected</option>
+              </select>
+            </label>
+
+            <label class="consent-row">
+              <input id="consent" name="consent" type="checkbox" required />
+              <span>
+                <strong>Everyone on this call has agreed to be monitored.</strong>
+                <small>Audio will be transcribed and analyzed during the call.</small>
+              </span>
+            </label>
+
+            <p id="setup-error" class="inline-error" role="alert" hidden></p>
+            <button id="join-button" class="button button-primary" type="submit">
+              <span>Join live call</span>
+              <span aria-hidden="true">→</span>
+            </button>
+          </form>
+
+          <div class="preview-route">
+            <div>
+              <strong>Presenting without credentials?</strong>
+              <span>Show an evolving, local-only sample.</span>
+            </div>
+            <button id="preview-button" class="text-button" type="button">Open demo preview</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="call-view" class="call-view" aria-labelledby="call-title" hidden>
+        <div id="preview-banner" class="preview-banner" role="status" hidden>
+          <strong>Demo preview — no live call</strong>
+          <span>Simulated transcript and risk data. Nothing is sent to a model or call service.</span>
+        </div>
+
+        <div class="call-heading">
+          <div>
+            <p id="call-state-line" class="status-line"><span class="status-dot"></span>Connecting</p>
+            <h1 id="call-title">Call in progress</h1>
+            <p id="room-summary" class="room-summary">Room · 0 people</p>
+          </div>
+          <div class="elapsed-wrap">
+            <span>Elapsed</span>
+            <strong id="elapsed-time">00:00</strong>
+          </div>
+        </div>
+
+        <div id="call-error" class="call-error" role="alert" hidden></div>
+
+        <div class="call-grid">
+          <aside class="people-panel" aria-labelledby="people-title">
+            <div class="panel-heading">
+              <div>
+                <h2 id="people-title">People in the room</h2>
+                <p id="audio-proof">Waiting for microphone activity</p>
+              </div>
+              <span id="participant-count" class="count-badge">0</span>
+            </div>
+            <div id="participant-list" class="participant-list"></div>
+            <p id="participant-empty" class="empty-copy">Waiting for another person to join…</p>
+
+            <div class="call-controls">
+              <button id="mute-button" class="control-button" type="button" aria-pressed="false">
+                <span class="control-icon mic-icon" aria-hidden="true"></span>
+                <span id="mute-label">Mute</span>
+              </button>
+              <button id="audio-button" class="control-button" type="button" hidden>
+                <span class="control-icon speaker-icon" aria-hidden="true"></span>
+                <span>Enable audio</span>
+              </button>
+              <button id="leave-button" class="control-button control-danger" type="button">
+                <span class="control-icon hangup-icon" aria-hidden="true"></span>
+                <span>Leave</span>
+              </button>
+            </div>
+          </aside>
+
+          <section class="assessment-panel" aria-labelledby="assessment-title">
+            <div class="assessment-topline">
+              <div>
+                <h2 id="assessment-title">Live assessment</h2>
+                <p id="analysis-state">Waiting for the monitor</p>
+              </div>
+              <span id="analysis-freshness" class="freshness">No analysis yet</span>
+            </div>
+
+            <div id="risk-display" class="risk-display risk-unavailable" aria-live="polite">
+              <div class="risk-score-block">
+                <span id="risk-band" class="risk-band">Pending</span>
+                <div><strong id="risk-score">—</strong><span>/100</span></div>
+              </div>
+              <div class="risk-message">
+                <h3 id="risk-headline">Assessment will appear as the conversation develops.</h3>
+                <p id="risk-change">No current profile is available.</p>
+              </div>
+            </div>
+
+            <div class="risk-scale" aria-hidden="true"><span id="risk-scale-fill"></span></div>
+
+            <div class="advice-block">
+              <span>What to do now</span>
+              <p id="risk-advice">Keep listening. SecureGuIA will show a specific next step when evidence appears.</p>
+            </div>
+
+            <div class="evidence-section">
+              <div class="section-heading">
+                <h3>Evidence from the call</h3>
+                <span id="evidence-count">0 signals</span>
+              </div>
+              <div id="evidence-list" class="evidence-list"></div>
+              <p id="evidence-empty" class="empty-copy">No evidence-backed risk signals yet.</p>
+            </div>
+          </section>
+        </div>
+
+        <section class="transcript-panel" aria-labelledby="transcript-title">
+          <div class="section-heading transcript-heading">
+            <div>
+              <h2 id="transcript-title">Current transcript</h2>
+              <p id="monitor-detail">Waiting for speech</p>
+            </div>
+            <span id="transcript-count">0 turns</span>
+          </div>
+          <ol id="transcript-list" class="transcript-list" aria-live="polite"></ol>
+          <p id="transcript-empty" class="empty-copy">The transcript will appear after someone speaks.</p>
+        </section>
+      </section>
+    </main>
+
+    <div id="remote-audio" class="remote-audio" aria-hidden="true"></div>
+  </body>
+</html>
