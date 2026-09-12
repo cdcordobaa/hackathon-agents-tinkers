@@ -1,0 +1,41 @@
+## Why
+
+`RollingTranscript` is written, tested and fed by a replay script. Nothing connects real
+call audio to `transcript.final()`. CLAUDE.md lists this plainly under Unverified:
+"Speech-to-text is not wired at all." Until it is, every live path ends at a stream of
+PCM nobody reads.
+
+The web sibling already solved the hard part.
+`../agents-everywhere-starter-kit/apps/web/src/lib/transcription-session.ts` is a plain
+WebSocket client with no DOM dependency — a listening session that transcribes without
+ever answering back — and should port to the gateway nearly unchanged.
+
+## What Changes
+
+- A `TranscriptionSession` in the gateway: one streaming speech-to-text connection per
+  speaker, fed normalised frames, emitting deltas and finals.
+- Wiring into `RollingTranscript` that respects the rule already encoded there: only
+  finals enter the transcript, deltas are held separately and replaced rather than appended.
+- One session per speaker, so speaker attribution comes from the transport rather than from
+  diarization — free on LiveKit (one track per participant) and on Twilio (one per leg).
+- Reconnection with backoff, and explicit reporting when a speaker's transcription is down,
+  because a dead STT socket produces exactly the same transcript as a silent room.
+- A `transcript.turn` event on the session stream, so the mobile client can show the
+  conversation and the case file can be assembled from events.
+- A latency budget measured end to end: speech → final → available to the analyzer.
+
+## Capabilities
+
+### New Capabilities
+- `transcription`: turning attributed call audio into speaker-labelled final turns, and
+  reporting honestly when it cannot.
+
+## Impact
+
+- New: `server/src/transcription/`, ported from the starter kit's web implementation
+  (MIT, same workspace).
+- `agent/`: `RollingTranscript` gains a real producer. No change to its logic — the delta
+  and final semantics it already implements are exactly what the streaming API provides.
+- Requires `OPENAI_API_KEY` on the gateway only.
+- Depends on: add-call-session-contracts. Runs in parallel with both transport changes by
+  developing against `ReplayTransport` and the fixture's audio.
