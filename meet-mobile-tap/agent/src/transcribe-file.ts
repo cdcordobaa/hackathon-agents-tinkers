@@ -9,6 +9,7 @@
  *   afconvert -f WAVE -d LEI16@16000 -c 1 /tmp/t.aiff /tmp/t.wav
  */
 import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { transcribeChunk } from "./transcribe.ts";
 import { measureVoicedMs } from "./audio-chunker.ts";
 
@@ -58,27 +59,31 @@ export function readWav(buffer: Buffer): { pcm: Int16Array; sampleRate: number }
   throw new Error("No data chunk found.");
 }
 
-const path = process.argv[2];
-if (!path) {
-  console.error("usage: npm run transcribe -- <file.wav>");
-  process.exit(1);
+async function main(): Promise<void> {
+  const path = process.argv[2];
+  if (!path) {
+    console.error("usage: npm run transcribe -- <file.wav>");
+    process.exit(1);
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
+  if (!apiKey) {
+    console.error("GEMINI_API_KEY is not set.");
+    process.exit(1);
+  }
+
+  const { pcm, sampleRate } = readWav(readFileSync(path));
+  const voicedMs = measureVoicedMs(pcm, sampleRate, 300);
+  const durationMs = Math.round((pcm.length / sampleRate) * 1000);
+
+  console.log(
+    `\x1b[90m${path} · ${sampleRate}Hz · ${durationMs}ms · ${voicedMs}ms voiced\x1b[0m`,
+  );
+
+  const startedAt = Date.now();
+  const text = await transcribeChunk(pcm, sampleRate, { apiKey });
+  console.log(`\x1b[90m${Date.now() - startedAt}ms\x1b[0m`);
+  console.log(text ? text : "\x1b[90m(no speech)\x1b[0m");
 }
 
-const apiKey = process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
-if (!apiKey) {
-  console.error("GEMINI_API_KEY is not set.");
-  process.exit(1);
-}
-
-const { pcm, sampleRate } = readWav(readFileSync(path));
-const voicedMs = measureVoicedMs(pcm, sampleRate, 300);
-const durationMs = Math.round((pcm.length / sampleRate) * 1000);
-
-console.log(
-  `\x1b[90m${path} · ${sampleRate}Hz · ${durationMs}ms · ${voicedMs}ms voiced\x1b[0m`,
-);
-
-const startedAt = Date.now();
-const text = await transcribeChunk(pcm, sampleRate, { apiKey });
-console.log(`\x1b[90m${Date.now() - startedAt}ms\x1b[0m`);
-console.log(text ? text : "\x1b[90m(no speech)\x1b[0m");
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

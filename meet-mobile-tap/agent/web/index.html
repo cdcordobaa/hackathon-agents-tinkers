@@ -60,20 +60,31 @@
         <div class="join-panel">
           <div class="join-heading">
             <h2>Join a room</h2>
-            <p>Your microphone starts only after you join.</p>
+            <p id="join-description">Your microphone starts only after you join.</p>
           </div>
 
           <form id="join-form" novalidate>
+            <fieldset class="mode-switch">
+              <legend>Call source</legend>
+              <label>
+                <input type="radio" name="callMode" value="live" checked />
+                <span>Live microphones</span>
+              </label>
+              <label>
+                <input type="radio" name="callMode" value="recorded" />
+                <span>Recorded call</span>
+              </label>
+            </fieldset>
             <label class="field">
               <span>Room name</span>
               <input id="room-name" name="roomName" value="demo" maxlength="64" autocomplete="off" required />
               <small class="field-hint">Use this exact room name in the mobile app or another browser.</small>
             </label>
-            <label class="field">
+            <label id="display-name-field" class="field">
               <span>Your name</span>
               <input id="display-name" name="displayName" value="Alex" maxlength="40" autocomplete="name" required />
             </label>
-            <label class="field">
+            <label id="role-field" class="field">
               <span>Your role</span>
               <select id="role" name="role">
                 <option value="counterparty" selected>Other caller</option>
@@ -81,17 +92,34 @@
               </select>
             </label>
 
+            <div id="recorded-fields" class="recorded-fields" hidden>
+              <label class="field file-field">
+                <span>Bank agent / counterparty audio</span>
+                <input id="counterparty-audio" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg" />
+                <small class="field-hint">Played first, as one complete intervention.</small>
+              </label>
+              <label class="field file-field">
+                <span>Protected person audio</span>
+                <input id="subject-audio" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg" />
+                <small class="field-hint">Played second, after the bank audio finishes.</small>
+              </label>
+              <p class="recorded-note">
+                Files are prepared on this device. Audio is sent for real transcription and Gemini
+                analysis only when you start playback.
+              </p>
+            </div>
+
             <label class="consent-row">
               <input id="consent" name="consent" type="checkbox" required />
               <span>
-                <strong>Everyone on this call has agreed to be monitored.</strong>
-                <small>Audio will be transcribed and analyzed during the call.</small>
+                <strong id="consent-title">Everyone on this call has agreed to be monitored.</strong>
+                <small id="consent-detail">Audio will be transcribed and analyzed during the call.</small>
               </span>
             </label>
 
             <p id="setup-error" class="inline-error" role="alert" hidden></p>
             <button id="join-button" class="button button-primary" type="submit">
-              <span>Join live call</span>
+              <span id="join-button-label">Join live call</span>
               <span aria-hidden="true">→</span>
             </button>
           </form>
@@ -110,6 +138,10 @@
         <div id="preview-banner" class="preview-banner" role="status" hidden>
           <strong>Demo preview — no live call</strong>
           <span>Simulated transcript and risk data. Nothing is sent to a model or call service.</span>
+        </div>
+        <div id="recorded-banner" class="recorded-banner" role="status" hidden>
+          <strong>Recorded call · real analysis</strong>
+          <span>Two local test files play consecutively into LiveKit and are analyzed by the configured services.</span>
         </div>
 
         <div class="call-heading">
@@ -145,7 +177,24 @@
             <div id="participant-list" class="participant-list"></div>
             <p id="participant-empty" class="empty-copy">Waiting for another person to join…</p>
 
-            <div class="call-controls">
+            <div id="recorded-controls" class="recorded-controls" hidden>
+              <div class="recorded-progress-copy">
+                <div>
+                  <strong id="recorded-phase">Recordings prepared</strong>
+                  <span id="recorded-progress-time">00:00 / 00:00</span>
+                </div>
+                <p id="recorded-detail">Join the same room from mobile now, then start the recordings.</p>
+              </div>
+              <div class="recorded-progress" aria-hidden="true"><span id="recorded-progress-fill"></span></div>
+              <div class="recorded-actions">
+                <button id="start-recordings" class="button button-primary" type="button">Start recordings</button>
+                <button id="recorded-audio-button" class="control-button" type="button" hidden>Enable observer audio</button>
+                <button id="stop-recordings" class="control-button control-danger" type="button">Stop &amp; reset</button>
+                <button id="replay-recordings" class="control-button" type="button" hidden>Replay in fresh room</button>
+              </div>
+            </div>
+
+            <div id="call-controls" class="call-controls">
               <button id="mute-button" class="control-button" type="button" aria-pressed="false">
                 <span class="control-icon mic-icon" aria-hidden="true"></span>
                 <span id="mute-label">Mute</span>
