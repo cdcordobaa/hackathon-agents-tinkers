@@ -11,10 +11,12 @@ export type JoinCredentials = {
   monitorIdentity: string;
 };
 
-type JoinRequest = {
+export type JoinRequest = {
   gatewayUrl: string;
   roomName: string;
   displayName: string;
+  role?: "subject" | "counterparty";
+  signal?: AbortSignal;
 };
 
 const CLIENT_IDENTITY = `mobile-${Date.now().toString(36)}-${Math.random()
@@ -53,6 +55,9 @@ export function validateJoinInput(request: JoinRequest): string | undefined {
 export async function requestJoinCredentials(request: JoinRequest): Promise<JoinCredentials> {
   const gatewayUrl = normalizeGatewayUrl(request.gatewayUrl);
   const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (request.signal?.aborted) controller.abort();
+  else request.signal?.addEventListener("abort", cancel, { once: true });
   const timeout = setTimeout(() => controller.abort(), 12_000);
 
   let response: Response;
@@ -64,13 +69,14 @@ export async function requestJoinCredentials(request: JoinRequest): Promise<Join
         roomName: request.roomName.trim(),
         identity: CLIENT_IDENTITY,
         displayName: request.displayName.trim(),
-        role: "subject",
+        role: request.role ?? "subject",
         consent: true,
       }),
       signal: controller.signal,
     });
   } catch (cause) {
     if (cause instanceof Error && cause.name === "AbortError") {
+      if (request.signal?.aborted) throw new Error("Join cancelled.");
       throw new Error("The gateway did not respond. Check that it is running on port 8787.");
     }
     throw new Error(
@@ -78,6 +84,7 @@ export async function requestJoinCredentials(request: JoinRequest): Promise<Join
     );
   } finally {
     clearTimeout(timeout);
+    request.signal?.removeEventListener("abort", cancel);
   }
 
   let payload: unknown;

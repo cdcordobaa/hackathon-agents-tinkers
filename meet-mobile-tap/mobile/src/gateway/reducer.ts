@@ -20,6 +20,8 @@ export type ConnectionStatus = "idle" | "connecting" | "open" | "reconnecting" |
 
 export type TranscriptTurn = {
   seq: number;
+  /** Stable room-snapshot id; absent for the append-only event gateway. */
+  sourceId?: string;
   atMs: number;
   speakerId: string;
   speakerLabel: string;

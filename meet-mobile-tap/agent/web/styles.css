@@ -250,6 +250,7 @@ a:focus-visible {
 #join-form { display: grid; gap: 17px; margin-top: 26px; }
 
 .field { display: grid; gap: 8px; color: var(--muted); font-size: 12px; font-weight: 650; }
+.field-hint { color: var(--quiet); font-size: 11px; font-weight: 500; line-height: 1.45; }
 
 .field input,
 .field select {
@@ -407,6 +408,21 @@ a:focus-visible {
 .section-heading { display: flex; justify-content: space-between; align-items: start; gap: 20px; }
 
 .count-badge { min-width: 29px; justify-content: center; color: var(--teal-soft); background: var(--teal-dark); }
+
+.room-share {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-top: 20px;
+  padding: 15px 0;
+  border-top: 1px solid rgba(39, 64, 71, 0.7);
+  border-bottom: 1px solid rgba(39, 64, 71, 0.7);
+}
+.room-share p { display: grid; gap: 4px; margin: 0; }
+.room-share strong { font-size: 12px; }
+.room-share span { color: var(--quiet); font-size: 11px; line-height: 1.45; }
+.room-share b { color: var(--teal-soft); font-weight: 720; }
 
 .participant-list { display: grid; gap: 4px; margin-top: 25px; }
 .participant-row { padding: 15px 0; border-bottom: 1px solid rgba(39, 64, 71, 0.7); }
@@ -573,6 +589,7 @@ a:focus-visible {
   .call-controls { flex-wrap: wrap; }
   .control-button { flex: 1; }
   .control-danger { margin-left: 0; }
+  .room-share { align-items: start; flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {

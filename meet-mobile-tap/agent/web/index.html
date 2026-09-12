@@ -67,6 +67,7 @@
             <label class="field">
               <span>Room name</span>
               <input id="room-name" name="roomName" value="demo" maxlength="64" autocomplete="off" required />
+              <small class="field-hint">Use this exact room name in the mobile app or another browser.</small>
             </label>
             <label class="field">
               <span>Your name</span>
@@ -133,6 +134,13 @@
                 <p id="audio-proof">Waiting for microphone activity</p>
               </div>
               <span id="participant-count" class="count-badge">0</span>
+            </div>
+            <div id="room-share" class="room-share">
+              <p>
+                <strong>Bring in another caller</strong>
+                <span>On mobile, join room <b id="share-room-name">demo</b>. For a browser, share this room link.</span>
+              </p>
+              <button id="copy-room-link" class="text-button" type="button">Copy room link</button>
             </div>
             <div id="participant-list" class="participant-list"></div>
             <p id="participant-empty" class="empty-copy">Waiting for another person to join…</p>

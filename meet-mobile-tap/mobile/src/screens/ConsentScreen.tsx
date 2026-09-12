@@ -1,43 +1,48 @@
-/**
- * The one screen every path to a running call must pass through. Buttons
- * stay disabled until `ready` (the gateway WebSocket is open) — sending
- * consent.granted/declined any earlier would be silently dropped by
- * GatewaySessionClient.send, which only transmits on an open socket.
- *
- * Declining ends the session outright (GatewaySessionClient.declineConsent
- * both sends consent.declined and closes the socket) rather than leaving it
- * sitting in awaiting-consent — there is no path from here back to a
- * connected call without going through Continue again from scratch.
- */
+import { useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import { C, styles } from "../styles";
+import type { MobileTransport } from "./SetupScreen";
 
 export function ConsentScreen({
   ready,
+  busy,
+  transport,
   error,
   onGrant,
   onDecline,
 }: {
   ready: boolean;
+  busy: boolean;
+  transport: MobileTransport;
   error: string | undefined;
   onGrant: () => void;
   onDecline: () => void;
 }) {
+  const [confirmed, setConfirmed] = useState(false);
+  const canStart = ready && confirmed && !busy;
+
   return (
     <ScrollView contentContainerStyle={styles.scrollPage}>
-      <Text style={styles.eyebrow}>Before this call connects</Text>
-      <Text style={styles.title}>This call will be recorded and analysed</Text>
+      <Text style={styles.eyebrow}>{transport === "livekit" ? "Before joining the room" : "Before the replay starts"}</Text>
+      <Text style={styles.title}>{transport === "livekit" ? "Consent to live analysis" : "Run the scripted sample"}</Text>
 
       <View style={styles.card}>
-        <Text style={styles.body}>
-          Everything said on this call will be transcribed in real time and analysed for
-          social-engineering and fraud risk. The transcript, the risk assessment, and your
-          decision on this screen become part of this session's record.
-        </Text>
-        <Text style={styles.body}>
-          If more than one person is on the call, every state that requires all-party consent
-          needs everyone's agreement before this can proceed.
-        </Text>
+        {transport === "livekit" ? (
+          <>
+            <Text style={styles.body}>
+              Audio in this room will be transcribed and analysed for social-engineering and
+              fraud risk during the call. The transcript and risk guidance appear on screen.
+            </Text>
+            <Text style={styles.body}>
+              Make sure everyone on the call agrees before you join the room.
+            </Text>
+          </>
+        ) : (
+          <Text style={styles.body}>
+            Replay uses a scripted bank-scam sample to demonstrate the transcript and risk
+            experience. It does not use your microphone.
+          </Text>
+        )}
       </View>
 
       {error ? (
@@ -46,19 +51,58 @@ export function ConsentScreen({
         </View>
       ) : null}
 
-      <Pressable style={[styles.primary, !ready && styles.primaryDisabled]} onPress={onGrant} disabled={!ready}>
-        {ready ? (
-          <Text style={styles.primaryLabel}>I agree — start the call</Text>
+      <Pressable
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: confirmed }}
+        onPress={() => setConfirmed((current) => !current)}
+        style={local.consentRow}
+      >
+        <View style={[local.checkbox, confirmed && local.checkboxChecked]}>
+          <Text style={local.checkmark}>{confirmed ? "✓" : ""}</Text>
+        </View>
+        <Text style={[styles.body, local.consentText]}>
+          {transport === "livekit"
+            ? "Everyone agrees to audio being transcribed and analysed during this call."
+            : "I understand this is a scripted sample and want to continue."}
+        </Text>
+      </Pressable>
+
+      <Pressable
+        accessibilityRole="button"
+        style={[styles.primary, !canStart && styles.primaryDisabled]}
+        onPress={onGrant}
+        disabled={!canStart}
+      >
+        {canStart ? (
+          <Text style={styles.primaryLabel}>Start the call</Text>
+        ) : ready && !busy ? (
+          <Text style={styles.primaryLabel}>Confirm consent to continue</Text>
         ) : (
           <View style={styles.row}>
             <ActivityIndicator color="#06282B" />
-            <Text style={styles.primaryLabel}>Connecting to session…</Text>
+            <Text style={styles.primaryLabel}>{busy ? "Connecting the call…" : "Connecting to session…"}</Text>
           </View>
         )}
       </Pressable>
-      <Pressable style={styles.secondary} onPress={onDecline}>
+      <Pressable accessibilityRole="button" style={styles.secondary} onPress={onDecline}>
         <Text style={styles.secondaryLabel}>Decline — don't start</Text>
       </Pressable>
     </ScrollView>
   );
 }
+
+const local = {
+  consentRow: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 12 },
+  consentText: { flex: 1 },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: C.faint,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  checkboxChecked: { borderColor: C.accent, backgroundColor: C.accent },
+  checkmark: { color: "#06282B", fontSize: 16, fontWeight: "800" as const, lineHeight: 19 },
+};

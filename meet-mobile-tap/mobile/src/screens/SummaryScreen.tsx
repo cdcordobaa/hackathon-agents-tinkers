@@ -20,12 +20,12 @@ export function SummaryScreen({ state, onStartNew }: { state: GatewayState; onSt
         {peak ? (
           <>
             <Text style={styles.subtitle}>
-              Highest risk reached: {peak.risk.toUpperCase()} ({peak.score})
+              Highest observed risk: {peak.risk.toUpperCase()} ({peak.score})
             </Text>
             <Text style={styles.body}>{peak.headline}</Text>
           </>
         ) : (
-          <Text style={styles.body}>No assessment was produced during this call.</Text>
+          <Text style={styles.body}>No assessment was received during this call.</Text>
         )}
       </View>
 
@@ -34,7 +34,7 @@ export function SummaryScreen({ state, onStartNew }: { state: GatewayState; onSt
       <Text style={[styles.eyebrow, { marginTop: 8 }]}>Transcript ({state.turns.length} turns)</Text>
       <View style={styles.card}>
         {state.turns.length === 0 ? (
-          <Text style={styles.body}>No turns were transcribed.</Text>
+          <Text style={styles.body}>No transcript turns were received.</Text>
         ) : (
           state.turns.slice(-5).map((t) => (
             <View key={t.seq} style={{ marginBottom: 6 }}>

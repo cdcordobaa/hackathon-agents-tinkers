@@ -14,11 +14,9 @@ import {
 } from "@livekit/rtc-node";
 import { createDemoServer } from "./demo-server.ts";
 import {
-  MONITOR_IDENTITY,
-  SESSION_TOPIC,
-  parseCallSnapshot,
   type CallSnapshot,
 } from "../../shared/session.ts";
+import { acceptRoomSnapshot, initialRoomSession } from "../../shared/room-session.ts";
 import { pcmRms } from "./livekit-monitor-helpers.ts";
 
 const LIVEKIT_URL = "ws://127.0.0.1:7880";
@@ -89,6 +87,7 @@ async function main(): Promise<void> {
       "smoke-subject",
     );
     const monitorObservedBoth = observeMonitorSnapshots(subjectRoom);
+    const counterpartObservedBoth = observeMonitorSnapshots(counterpartyRoom);
 
     subjectTone = await publishTone(subjectRoom, "subject-tone");
     counterpartyTone = await publishTone(counterpartyRoom, "counterparty-tone");
@@ -98,16 +97,22 @@ async function main(): Promise<void> {
       pumpTone(counterpartyTone.source, 660, 2_200, 2_500),
     ]);
 
-    const [subjectRms, counterpartyRms, snapshot] = await Promise.all([
+    const [subjectRms, counterpartyRms, snapshot, counterpartSnapshot] = await Promise.all([
       withTimeout(subjectHeardCounterparty, 5_000, "Subject did not receive counterparty PCM."),
       withTimeout(counterpartyHeardSubject, 5_000, "Counterparty did not receive subject PCM."),
       withTimeout(monitorObservedBoth, 5_000, "Monitor did not report both audio signals."),
+      withTimeout(counterpartObservedBoth, 5_000, "The second client did not receive the shared room state."),
     ]);
 
     assert(subjectRms > 100, "Subject received only silence from counterparty.");
     assert(counterpartyRms > 100, "Counterparty received only silence from subject.");
     assert(snapshot.profile === null, "Monitor fabricated a risk profile without model keys.");
     assert(snapshot.status === "degraded", "Missing model keys were not reported as degraded.");
+    assert(counterpartSnapshot.roomName === snapshot.roomName &&
+      counterpartSnapshot.startedAt === snapshot.startedAt,
+    "The two clients did not observe the same monitor session.");
+    assert(counterpartSnapshot.profile === null && counterpartSnapshot.status === "degraded",
+      "The second client did not receive the same unavailable-analysis state.");
     assert(
       /transcription unavailable/i.test(snapshot.detail) && /risk analysis unavailable/i.test(snapshot.detail),
       "Degraded snapshot did not explain both unavailable model capabilities.",
@@ -119,7 +124,7 @@ async function main(): Promise<void> {
     }
 
     console.log(
-      `local RTC smoke passed: two-way PCM observed; monitor saw 2/2 consented audio tracks; profile=null`,
+      `local RTC smoke passed: two-way PCM; both clients accepted the same monitor session through the shared browser/mobile receiver; 2/2 consented audio tracks; profile=null`,
     );
   } finally {
     await Promise.allSettled([
@@ -243,11 +248,15 @@ function observeRemoteAudio(room: Room, expectedIdentity: string): Promise<numbe
 }
 
 function observeMonitorSnapshots(room: Room): Promise<CallSnapshot> {
+  let state = initialRoomSession();
   return new Promise<CallSnapshot>((resolve, reject) => {
     room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
-      if (participant?.identity !== MONITOR_IDENTITY || topic !== SESSION_TOPIC) return;
-      const snapshot = parseCallSnapshot(new TextDecoder().decode(payload));
-      if (!snapshot) return reject(new Error("Monitor published an invalid session snapshot."));
+      const next = acceptRoomSnapshot(state, {
+        payload, senderIdentity: participant?.identity, topic, roomName: ROOM_NAME,
+      });
+      if (next === state) return;
+      state = next;
+      const snapshot = state.snapshot!;
       if (snapshot.profile !== null) {
         return reject(new Error("Monitor published a profile despite cleared model keys."));
       }

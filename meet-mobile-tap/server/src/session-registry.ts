@@ -128,6 +128,14 @@ export class SessionRegistry {
     return () => record.subscribers.delete(listener);
   }
 
+  /** Stop every source and analyzer timer immediately during gateway shutdown. */
+  async dispose(): Promise<void> {
+    const records = [...this.records.values()];
+    this.records.clear();
+    for (const record of records) record.subscribers.clear();
+    await Promise.allSettled(records.map((record) => record.session.abort("replaced")));
+  }
+
   get size(): number {
     return this.records.size;
   }

@@ -34,15 +34,16 @@ const MAX_BACKOFF_MS = 15_000;
 
 export class GatewaySessionClient {
   private ws: WebSocket | undefined;
-  private state: GatewayState;
+  private state: GatewayState = initialGatewayState();
   private readonly listeners = new Set<(state: GatewayState) => void>();
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
   private closedByUser = false;
   private transport: TranscriptSourceKind | undefined;
+  private readonly gatewayUrl: string;
 
-  constructor() {
-    this.state = initialGatewayState();
+  constructor(gatewayUrl = GATEWAY_URL) {
+    this.gatewayUrl = gatewayUrl.replace(/\/+$/, "");
   }
 
   getState(): GatewayState {
@@ -66,7 +67,7 @@ export class GatewaySessionClient {
 
     let created: { id: string };
     try {
-      const response = await fetch(`${GATEWAY_URL}/session`, {
+      const response = await fetch(`${this.gatewayUrl}/session`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ transport }),
@@ -107,6 +108,28 @@ export class GatewaySessionClient {
     this.send({ type: "session.end" });
   }
 
+  /** Send the terminal event, then keep the socket alive briefly so the
+   * server's final state/transcript events can land before teardown. */
+  async endSessionAndWait(timeoutMs = 2_000): Promise<void> {
+    this.endSession();
+    if (this.state.sessionState === "ended") return;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      let unsubscribe = () => {};
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve();
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      unsubscribe = this.subscribe((state) => {
+        if (state.sessionState === "ended" || state.connection === "closed") finish();
+      });
+    });
+  }
+
   /** User-initiated teardown (leaving the call, or the app navigating away).
    *  Suppresses the reconnect loop that a server-initiated close triggers. */
   disconnect(): void {
@@ -121,7 +144,7 @@ export class GatewaySessionClient {
 
     this.setState(setConnection(this.state, this.state.lastSeq === undefined ? "connecting" : "reconnecting"));
 
-    const ws = new WebSocket(buildSessionWsUrl(sessionId));
+    const ws = new WebSocket(buildSessionWsUrl(sessionId, this.gatewayUrl));
     this.ws = ws;
 
     ws.onopen = () => {

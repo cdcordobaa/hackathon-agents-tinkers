@@ -10,8 +10,8 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { TranscriptSourceKind } from "../../../shared/src";
 import { GatewaySessionClient } from "./client";
 
-export function useGatewaySession(attemptKey: number | string) {
-  const client = useMemo(() => new GatewaySessionClient(), [attemptKey]);
+export function useGatewaySession(attemptKey: number | string, gatewayUrl?: string) {
+  const client = useMemo(() => new GatewaySessionClient(gatewayUrl), [attemptKey, gatewayUrl]);
 
   const state = useSyncExternalStore(
     (onStoreChange) => client.subscribe(onStoreChange),
@@ -27,10 +27,12 @@ export function useGatewaySession(attemptKey: number | string) {
 
   return {
     state,
+    getState: () => client.getState(),
     start: (transport: TranscriptSourceKind) => client.start(transport),
     grantConsent: () => client.grantConsent(),
     declineConsent: () => client.declineConsent(),
     endSession: () => client.endSession(),
+    endSessionAndWait: (timeoutMs?: number) => client.endSessionAndWait(timeoutMs),
     disconnect: () => client.disconnect(),
   };
 }

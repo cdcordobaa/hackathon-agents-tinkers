@@ -197,6 +197,24 @@ test("cross-origin requests are rejected before gateway work", async () => {
   );
 });
 
+test("CORS preflight permits bearer-authenticated segment ingestion", async () => {
+  await withServer(
+    {
+      env: configuredEnv({ ALLOWED_ORIGINS: "https://trusted.example" }),
+      startMonitor: async () => inertMonitor(),
+    },
+    async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/session/example/segments`, {
+        method: "OPTIONS",
+        headers: { Origin: "https://trusted.example" },
+      });
+      assert.equal(response.status, 204);
+      assert.equal(response.headers.get("access-control-allow-origin"), "https://trusted.example");
+      assert.match(response.headers.get("access-control-allow-headers") ?? "", /Authorization/);
+    },
+  );
+});
+
 test("a failed monitor startup is removed so a later join can retry", async () => {
   let starts = 0;
   await withServer(

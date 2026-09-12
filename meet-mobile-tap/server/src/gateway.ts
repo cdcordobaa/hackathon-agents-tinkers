@@ -31,6 +31,10 @@ import { BrowserTranscriptSource, parseSegmentBatch } from "./browser-source.ts"
 
 const SESSION_PATH = /^\/session\/([^/]+)$/;
 const SEGMENTS_PATH = /^\/session\/([^/]+)\/segments$/;
+// One valid maximum-size segment batch is a little over 4 MB (200 turns at
+// 20k characters plus its metadata). Keep the wire bound just above that.
+const MAX_JSON_BODY_BYTES = 4_500_000;
+const MAX_CLIENT_MESSAGE_BYTES = 16_384;
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { "content-type": "application/json" });
@@ -51,7 +55,13 @@ function send(ws: WebSocket, event: SessionEvent): void {
 
 async function readJsonBody(req: http.IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let bytes = 0;
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.byteLength;
+    if (bytes > MAX_JSON_BODY_BYTES) throw new Error("request body is too large");
+    chunks.push(buffer);
+  }
   if (chunks.length === 0) return {};
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
@@ -60,11 +70,34 @@ function isTransportKind(value: unknown): value is TranscriptSourceKind {
   return value === "twilio" || value === "replay" || value === "livekit";
 }
 
-export function createGateway(registry: SessionRegistry): http.Server {
-  const wss = new WebSocketServer({ noServer: true });
+export type SessionHttpHandler = (
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+) => boolean;
 
-  const server = http.createServer((req, res) => {
+export type SessionWebSocketAttachment = {
+  close(): Promise<void>;
+};
+
+export type SessionHttpOptions = {
+  canCreateSession?: () => boolean;
+  unavailableMessage?: string;
+};
+
+/** Reusable legacy-session HTTP routes for the combined call gateway. */
+export function createSessionHttpHandler(
+  registry: SessionRegistry,
+  options: SessionHttpOptions = {},
+): SessionHttpHandler {
+  return (req, res) => {
     if (req.method === "POST" && req.url === "/session") {
+      if (options.canCreateSession && !options.canCreateSession()) {
+        sendJson(res, 503, {
+          error: options.unavailableMessage ??
+            "Replay sessions require risk analysis. Configure an OpenAI or Gemini model key and restart the gateway.",
+        });
+        return true;
+      }
       readJsonBody(req)
         .then((body) => {
           const transport =
@@ -78,32 +111,61 @@ export function createGateway(registry: SessionRegistry): http.Server {
         .catch(() => {
           sendJson(res, 400, { error: "invalid request body" });
         });
-      return;
+      return true;
     }
 
     const pathname = new URL(req.url ?? "", "http://internal").pathname;
     const segmentsMatch = req.method === "POST" ? SEGMENTS_PATH.exec(pathname) : null;
     if (segmentsMatch) {
       void handleSegmentsPost(req, res, segmentsMatch[1] as string, registry);
-      return;
+      return true;
     }
+    return false;
+  };
+}
 
-    sendJson(res, 404, { error: "not found" });
-  });
-
-  server.on("upgrade", (req, socket, head) => {
+/** Attach only the legacy `/session/:id` WebSocket namespace to an HTTP server. */
+export function attachSessionWebSocket(
+  server: http.Server,
+  registry: SessionRegistry,
+): SessionWebSocketAttachment {
+  const wss = new WebSocketServer({ noServer: true });
+  let closed = false;
+  const onUpgrade = (req: http.IncomingMessage, socket: import("node:stream").Duplex, head: Buffer) => {
     const url = new URL(req.url ?? "", "http://internal");
     const match = SESSION_PATH.exec(url.pathname);
     const id = match?.[1];
-    if (!id || !registry.get(id)) {
+    if (!id) {
+      socket.end("HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
+      return;
+    }
+    if (!registry.get(id)) {
       socket.destroy();
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
       handleConnection(ws, id, registry);
     });
-  });
+  };
+  server.on("upgrade", onUpgrade);
 
+  return {
+    async close(): Promise<void> {
+      if (closed) return;
+      closed = true;
+      server.off("upgrade", onUpgrade);
+      for (const client of wss.clients) client.terminate();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    },
+  };
+}
+
+export function createGateway(registry: SessionRegistry): http.Server {
+  const handleSessionHttp = createSessionHttpHandler(registry);
+  const server = http.createServer((req, res) => {
+    if (!handleSessionHttp(req, res)) sendJson(res, 404, { error: "not found" });
+  });
+  attachSessionWebSocket(server, registry);
   return server;
 }
 
@@ -195,13 +257,19 @@ function handleConnection(ws: WebSocket, id: string, registry: SessionRegistry):
   for (const event of registry.eventsSince(id, 0) ?? []) send(ws, event);
   const unsubscribe = registry.subscribe(id, (event) => send(ws, event));
 
-  ws.on("message", (raw) => {
-    let message: ClientMessage;
+  ws.on("message", (raw, isBinary) => {
+    const rawBytes = Array.isArray(raw)
+      ? raw.reduce((total, chunk) => total + chunk.byteLength, 0)
+      : raw.byteLength;
+    if (isBinary || rawBytes > MAX_CLIENT_MESSAGE_BYTES) return;
+    let parsed: unknown;
     try {
-      message = JSON.parse(raw.toString());
+      parsed = JSON.parse(raw.toString());
     } catch {
       return; // Malformed input from the client is not this session's problem.
     }
+    if (!isClientMessage(parsed)) return;
+    const message = parsed;
 
     const session = registry.get(id);
     if (!session) return;
@@ -226,4 +294,14 @@ function handleConnection(ws: WebSocket, id: string, registry: SessionRegistry):
   });
 
   ws.on("close", () => unsubscribe?.());
+}
+
+function isClientMessage(value: unknown): value is ClientMessage {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const message = value as Record<string, unknown>;
+  if (message.type === "session.start" || message.type === "session.end" ||
+      message.type === "consent.granted" || message.type === "consent.declined") return true;
+  return message.type === "subscribe" &&
+    (message.sinceSeq === undefined ||
+      (typeof message.sinceSeq === "number" && Number.isSafeInteger(message.sinceSeq) && message.sinceSeq >= 0));
 }

@@ -6,16 +6,20 @@ import {
   type Participant,
   type RemoteParticipant,
   type RemoteTrack,
-  type RemoteTrackPublication,
 } from "livekit-client";
 import {
   MONITOR_IDENTITY,
-  SESSION_TOPIC,
-  parseCallSnapshot,
   type CallParticipant,
   type CallSnapshot,
   type RiskProfile,
 } from "../../shared/session.ts";
+import {
+  ROOM_STALE_AFTER_MS,
+  acceptRoomSnapshot,
+  currentRoomProfile,
+  initialRoomSession,
+  type RoomSessionState,
+} from "../../shared/room-session.ts";
 
 type AppMode = "setup" | "live" | "preview";
 type Health = {
@@ -32,8 +36,7 @@ type JoinResponse = {
 };
 type VisibleParticipant = CallParticipant & { isLocal: boolean };
 
-const STALE_AFTER_MS = 30_000;
-const decoder = new TextDecoder();
+const ROOM_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 const element = <T extends HTMLElement>(id: string): T => {
   const found = document.getElementById(id);
@@ -59,6 +62,9 @@ const ui = {
   roomSummary: element<HTMLElement>("room-summary"),
   elapsedTime: element<HTMLElement>("elapsed-time"),
   callError: element<HTMLElement>("call-error"),
+  roomShare: element<HTMLElement>("room-share"),
+  shareRoomName: element<HTMLElement>("share-room-name"),
+  copyRoomLink: element<HTMLButtonElement>("copy-room-link"),
   audioProof: element<HTMLElement>("audio-proof"),
   participantCount: element<HTMLElement>("participant-count"),
   participantList: element<HTMLElement>("participant-list"),
@@ -94,8 +100,8 @@ const state: {
   role: "subject" | "counterparty";
   identity: string;
   startedAt: number;
-  snapshot: CallSnapshot | null;
-  snapshotReceivedAt: number;
+  roomSession: RoomSessionState;
+  previewSnapshot: CallSnapshot | null;
   lastRenderedFreshness: boolean | null;
   frameTimer?: number;
   previewTimer?: number;
@@ -109,8 +115,8 @@ const state: {
   role: "counterparty",
   identity: "",
   startedAt: 0,
-  snapshot: null,
-  snapshotReceivedAt: 0,
+  roomSession: initialRoomSession(),
+  previewSnapshot: null,
   lastRenderedFreshness: null,
   previewStage: 0,
   health: null,
@@ -153,6 +159,14 @@ function safeIdentity(displayName: string): string {
     .slice(0, 22) || "caller";
   const suffix = globalThis.crypto?.randomUUID?.().slice(0, 8) ?? Date.now().toString(36).slice(-8);
   return `browser-${slug}-${suffix}`;
+}
+
+function browserRoomLink(roomName: string): string {
+  const link = new URL(window.location.href);
+  link.search = "";
+  link.hash = "";
+  link.searchParams.set("room", roomName);
+  return link.toString();
 }
 
 function isJoinResponse(value: unknown): value is JoinResponse {
@@ -228,14 +242,14 @@ function configureRoom(room: Room): void {
   room.on(RoomEvent.AudioPlaybackStatusChanged, renderAudioControl);
   room.on(RoomEvent.ConnectionStateChanged, renderCall);
   room.on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
-    if (topic !== SESSION_TOPIC || participant?.identity !== MONITOR_IDENTITY) return;
-    const snapshot = parseCallSnapshot(decoder.decode(payload));
-    if (!snapshot || snapshot.roomName !== state.roomName) return;
-    if (state.snapshot && snapshot.startedAt < state.snapshot.startedAt) return;
-    if (state.snapshot && snapshot.startedAt === state.snapshot.startedAt &&
-      snapshot.sequence <= state.snapshot.sequence) return;
-    state.snapshot = snapshot;
-    state.snapshotReceivedAt = Date.now();
+    const next = acceptRoomSnapshot(state.roomSession, {
+      payload,
+      senderIdentity: participant?.identity,
+      topic,
+      roomName: state.roomName,
+    });
+    if (next === state.roomSession) return;
+    state.roomSession = next;
     renderCall();
   });
   room.on(RoomEvent.Disconnected, () => {
@@ -281,7 +295,7 @@ async function joinLiveCall(): Promise<void> {
   const displayName = ui.displayName.value.trim();
   const role = ui.role.value === "subject" ? "subject" : "counterparty";
 
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(roomName)) {
+  if (!ROOM_NAME_PATTERN.test(roomName)) {
     setError(ui.setupError, "Use 1–64 letters, numbers, hyphens, or underscores for the room name.");
     ui.roomName.focus();
     return;
@@ -330,8 +344,8 @@ async function joinLiveCall(): Promise<void> {
     state.displayName = displayName;
     state.role = role;
     state.identity = value.identity;
-    state.snapshot = null;
-    state.snapshotReceivedAt = 0;
+    state.roomSession = initialRoomSession();
+    state.previewSnapshot = null;
     state.lastRenderedFreshness = null;
 
     await room.connect(value.url, value.token, { autoSubscribe: true });
@@ -395,34 +409,40 @@ function cleanupSession(): void {
   const room = state.room;
   state.room = undefined;
   if (room && room.state !== ConnectionState.Disconnected) room.disconnect();
-  state.snapshot = null;
-  state.snapshotReceivedAt = 0;
+  state.roomSession = initialRoomSession();
+  state.previewSnapshot = null;
   state.lastRenderedFreshness = null;
 }
 
-function snapshotIsFresh(): boolean {
-  if (!state.snapshot) return false;
+function activeSnapshot(): CallSnapshot | null {
+  return state.mode === "preview" ? state.previewSnapshot : state.roomSession.snapshot;
+}
+
+function snapshotIsCurrent(now = Date.now()): boolean {
+  const snapshot = activeSnapshot();
+  if (!snapshot) return false;
   if (state.mode === "preview") return true;
-  const now = Date.now();
-  return now - state.snapshotReceivedAt <= STALE_AFTER_MS && now - state.snapshot.updatedAt <= STALE_AFTER_MS;
+  const receivedAt = state.roomSession.receivedAt;
+  return state.room?.state === ConnectionState.Connected && receivedAt !== null &&
+    Number.isFinite(now) && now >= receivedAt && now - receivedAt <= ROOM_STALE_AFTER_MS;
 }
 
 function renderFrame(): void {
   setText(ui.elapsedTime, formatElapsed(Date.now() - state.startedAt));
   renderParticipants();
   renderFreshness();
-  const currentFreshness = snapshotIsFresh();
-  if (state.snapshot && currentFreshness !== state.lastRenderedFreshness) renderCall();
+  const currentFreshness = snapshotIsCurrent();
+  if (activeSnapshot() && currentFreshness !== state.lastRenderedFreshness) renderCall();
 }
 
 function renderCall(): void {
   if (state.mode === "setup") return;
-  const snapshot = state.snapshot;
+  const snapshot = activeSnapshot();
   const room = state.room;
   const isPreview = state.mode === "preview";
   const connected = isPreview || room?.state === ConnectionState.Connected;
   const visible = getVisibleParticipants();
-  const monitorState = !snapshot ? "monitor waiting" : snapshotIsFresh() ? snapshot.status : "monitor update stale";
+  const monitorState = !snapshot ? "monitor waiting" : snapshotIsCurrent() ? snapshot.status : "monitor update stale";
 
   setText(ui.callTitle, connected ? snapshot?.status === "ended" ? "Call ended" : "Call in progress" : "Joining call…");
   setText(
@@ -434,10 +454,12 @@ function renderCall(): void {
         : `●  ${room?.state ?? "connecting"}`,
   );
   setText(ui.roomSummary, `${state.roomName} · ${visible.length} ${visible.length === 1 ? "person" : "people"}`);
+  setText(ui.shareRoomName, state.roomName);
+  ui.roomShare.hidden = isPreview;
   setText(ui.participantCount, String(visible.length));
   setText(
     ui.monitorDetail,
-    snapshot && !snapshotIsFresh()
+    snapshot && !snapshotIsCurrent()
       ? "Monitor update is stale; this transcript may be out of date"
       : snapshot?.detail || (isPreview ? "Simulated monitor is updating" : "Waiting for the SecureGuIA monitor"),
   );
@@ -461,7 +483,7 @@ function renderCall(): void {
 }
 
 function getVisibleParticipants(): VisibleParticipant[] {
-  const snapshotParticipants = state.snapshot?.participants ?? [];
+  const snapshotParticipants = activeSnapshot()?.participants ?? [];
   if (state.mode === "preview") return snapshotParticipants.map((person) => ({ ...person, isLocal: person.id === "you" }));
   const room = state.room;
   if (!room) return [];
@@ -476,7 +498,7 @@ function getVisibleParticipants(): VisibleParticipant[] {
         id: participant.identity,
         name: participant.name || reported?.name || (isLocal ? state.displayName : participant.identity),
         role: reported?.role ?? (isLocal ? state.role : "unknown"),
-        level: Math.max(participant.audioLevel ?? 0, snapshotIsFresh() ? reported?.level ?? 0 : 0),
+        level: Math.max(participant.audioLevel ?? 0, snapshotIsCurrent() ? reported?.level ?? 0 : 0),
         hasAudio: Boolean(publication && !publication.isMuted),
         consented: reported?.consented ?? isLocal,
         isLocal,
@@ -523,7 +545,7 @@ function renderAudioControl(): void {
 
 function renderFreshness(): void {
   if (state.mode === "setup") return;
-  const snapshot = state.snapshot;
+  const snapshot = activeSnapshot();
   ui.analysisFreshness.className = "freshness";
   if (!snapshot) {
     setText(ui.analysisFreshness, "No analysis yet");
@@ -544,8 +566,9 @@ function renderFreshness(): void {
     setText(ui.analysisFreshness, "Monitor degraded");
     return;
   }
-  const age = Math.max(0, Date.now() - snapshot.updatedAt);
-  if (snapshotIsFresh()) {
+  const receivedAt = state.roomSession.receivedAt ?? Date.now();
+  const age = Math.max(0, Date.now() - receivedAt);
+  if (snapshotIsCurrent()) {
     ui.analysisFreshness.classList.add("current");
     setText(ui.analysisFreshness, `Updated ${Math.floor(age / 1_000)}s ago`);
   } else {
@@ -555,11 +578,13 @@ function renderFreshness(): void {
 }
 
 function renderAssessment(): void {
-  const snapshot = state.snapshot;
-  const current = snapshotIsFresh();
+  const snapshot = activeSnapshot();
+  const now = Date.now();
+  const current = snapshotIsCurrent(now);
   state.lastRenderedFreshness = current;
-  const profileIsCurrent = current && snapshot?.status !== "degraded" && snapshot?.status !== "ended";
-  const profile = profileIsCurrent ? snapshot?.profile ?? null : null;
+  const profile = state.mode === "preview"
+    ? snapshot?.profile ?? null
+    : state.room?.state === ConnectionState.Connected ? currentRoomProfile(state.roomSession, now) : null;
   const degraded = snapshot?.status === "degraded";
   const ended = snapshot?.status === "ended";
 
@@ -606,7 +631,7 @@ function renderUnavailableRisk(headline: string, advice?: string): void {
   setText(ui.riskBand, "Pending");
   setText(ui.riskScore, "—");
   setText(ui.riskHeadline, headline);
-  setText(ui.riskChange, state.snapshot?.detail || "No current profile is available.");
+  setText(ui.riskChange, activeSnapshot()?.detail || "No current profile is available.");
   ui.riskScaleFill.style.transform = "scaleX(0)";
   setText(
     ui.riskAdvice,
@@ -640,7 +665,7 @@ function renderRisk(profile: RiskProfile): void {
 }
 
 function renderTranscript(): void {
-  const turns = state.snapshot?.turns ?? [];
+  const turns = activeSnapshot()?.turns ?? [];
   ui.transcriptList.replaceChildren(...turns.map((turn) => {
     const item = make("li", "turn");
     item.append(make("time", "turn-time", formatElapsed(turn.at)));
@@ -660,14 +685,12 @@ function beginPreview(): void {
   state.identity = "you";
   state.startedAt = Date.now() - 2 * 60_000 - 18_000;
   state.previewStage = 1;
-  state.snapshot = previewSnapshot(state.previewStage, state.startedAt);
-  state.snapshotReceivedAt = Date.now();
+  state.previewSnapshot = previewSnapshot(state.previewStage, state.startedAt);
   showCallView();
   state.previewTimer = window.setInterval(() => {
     if (state.previewStage >= 3) return;
     state.previewStage += 1;
-    state.snapshot = previewSnapshot(state.previewStage, state.startedAt);
-    state.snapshotReceivedAt = Date.now();
+    state.previewSnapshot = previewSnapshot(state.previewStage, state.startedAt);
     renderCall();
   }, 6_000);
 }
@@ -760,6 +783,17 @@ ui.joinForm.addEventListener("submit", (event) => {
 });
 ui.previewButton.addEventListener("click", beginPreview);
 ui.leaveButton.addEventListener("click", () => showSetup());
+ui.copyRoomLink.addEventListener("click", async () => {
+  if (state.mode !== "live" || !ROOM_NAME_PATTERN.test(state.roomName)) return;
+  try {
+    await navigator.clipboard.writeText(browserRoomLink(state.roomName));
+    setText(ui.copyRoomLink, "Link copied");
+    window.setTimeout(() => setText(ui.copyRoomLink, "Copy room link"), 2_000);
+  } catch {
+    setText(ui.copyRoomLink, "Copy unavailable");
+    window.setTimeout(() => setText(ui.copyRoomLink, "Copy room link"), 2_000);
+  }
+});
 ui.muteButton.addEventListener("click", async () => {
   if (state.mode !== "live" || !state.room) return;
   setError(ui.callError);
@@ -783,5 +817,8 @@ ui.audioButton.addEventListener("click", async () => {
   renderAudioControl();
 });
 window.addEventListener("beforeunload", () => state.room?.disconnect());
+
+const requestedRoom = new URL(window.location.href).searchParams.get("room")?.trim();
+if (requestedRoom && ROOM_NAME_PATTERN.test(requestedRoom)) ui.roomName.value = requestedRoom;
 
 void loadHealth();

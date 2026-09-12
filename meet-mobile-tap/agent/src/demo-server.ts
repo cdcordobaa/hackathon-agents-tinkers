@@ -8,13 +8,20 @@ export type MonitorOptions = {
   url: string; apiKey: string; apiSecret: string; roomName: string;
   onLog?: (message: string) => void;
 };
-type DemoServerOptions = {
+export type DemoServerExtension = {
+  handleHttp(request: IncomingMessage, response: ServerResponse): boolean;
+  attachWebSocket?: (server: ReturnType<typeof createServer>) => { close(): Promise<void> };
+};
+
+export type DemoServerOptions = {
   env?: NodeJS.ProcessEnv;
   startMonitor?: (options: MonitorOptions) => Promise<Monitor>;
   onLog?: (message: string) => void;
   /** Replaced in tests; active rooms are reclaimed when all humans leave. */
   hasHumans?: (roomName: string) => Promise<boolean>;
   now?: () => number;
+  /** Optional routes sharing this exact HTTP server and listening port. */
+  extension?: DemoServerExtension;
 };
 
 type JoinRequest = {
@@ -104,6 +111,8 @@ export function createDemoServer(options: DemoServerOptions = {}) {
   });
   server.requestTimeout = 15_000;
   server.headersTimeout = 10_000;
+  const extensionAttachment = options.extension?.attachWebSocket?.(server);
+  let stopPromise: Promise<void> | undefined;
 
   function json(response: ServerResponse, status: number, body: unknown) {
     response.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" });
@@ -122,7 +131,7 @@ export function createDemoServer(options: DemoServerOptions = {}) {
       response.setHeader("Access-Control-Allow-Origin", origin);
       response.setHeader("Vary", "Origin");
       response.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      response.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      response.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     }
     if (request.method === "OPTIONS") { response.writeHead(204); response.end(); return; }
     if (request.method === "GET" && path === "/api/health") {
@@ -188,20 +197,29 @@ export function createDemoServer(options: DemoServerOptions = {}) {
         } catch { return json(response, 503, { error: "Browser assets are missing. Run npm run build:web." }); }
       }
     }
+    if (options.extension?.handleHttp(request, response)) return;
     return json(response, 404, { error: "Not found." });
   }
 
-  async function stop() {
-    if (closing) return;
+  function stop(): Promise<void> {
+    if (stopPromise) return stopPromise;
     closing = true;
-    clearInterval(cleanup);
-    await Promise.allSettled([...rooms.values()].map(async (entry) => (await entry.monitor).stop()));
-    rooms.clear();
-    await new Promise<void>((resolve) => {
-      if (!server.listening) return resolve();
-      server.close(() => resolve());
-      server.closeIdleConnections();
-    });
+    stopPromise = (async () => {
+      clearInterval(cleanup);
+      const results = await Promise.allSettled([
+        extensionAttachment?.close(),
+        ...[...rooms.values()].map(async (entry) => (await entry.monitor).stop()),
+      ]);
+      rooms.clear();
+      await new Promise<void>((resolve) => {
+        if (!server.listening) return resolve();
+        server.close(() => resolve());
+        server.closeIdleConnections();
+      });
+      const failure = results.find((result) => result.status === "rejected");
+      if (failure?.status === "rejected") throw failure.reason;
+    })();
+    return stopPromise;
   }
   server.on("close", () => clearInterval(cleanup));
   return { server, stop, sweep };

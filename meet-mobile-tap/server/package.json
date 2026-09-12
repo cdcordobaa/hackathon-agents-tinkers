@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --env-file-if-exists=../agent/.env --env-file-if-exists=.env --import tsx src/main.ts",
+    "dev": "npm --prefix ../agent run dev",
     "test": "node --import tsx --test src/*.test.ts",
     "typecheck": "tsc --noEmit",
     "verify-ingest": "node --import tsx scripts/prove-segment-ingest.ts"

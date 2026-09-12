@@ -1,5 +1,11 @@
 # `web/` — the browser rung (T5)
 
+> **Legacy browser-STT harness.** The current unified demo is `../agent/web/`, served with its
+> `/api/health` and `/api/join` gateway by `../agent/` on port 8787. It shares a LiveKit room and
+> monitor snapshots with the mobile app. This directory is the earlier experimental harness that
+> transcribes inside the browser; it has its own tokens, processes, and ports and is not required
+> for the unified browser ↔ mobile demo.
+
 Why this exists, in one line: **Twilio is cut** (no paid account, no purchased number, no
 tunnel, no time), so the LiveKit path needs its own transcript producer or it demos a
 connected call with a dead risk HUD. This app transcribes every participant's audio track

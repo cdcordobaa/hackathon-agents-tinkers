@@ -1,67 +1,137 @@
-/**
- * `npm run dev` — starts the gateway. Defaults to the replay transport, so
- * this runs with no Twilio number, no LiveKit room, and no phone: the only
- * required env var is a model key for the analyzer (see model-client.ts).
- *
- * Env vars read here:
- *   PORT               gateway HTTP/WS port. Default 8787.
- *   DEFAULT_TRANSPORT  transport a bare `POST /session` gets when it does
- *                      not name one. Default "replay". "livekit" (the
- *                      browser rung, see browser-source.ts) now works too;
- *                      "twilio" is still accepted by the type but not
- *                      implemented in this scope — creating a source for it
- *                      throws.
- *   REPLAY_SPEED       ReplaySource's speed multiplier. Default 8 (a ~35s
- *                      scripted call finishes in a few seconds).
- * Everything else (OPENAI_API_KEY / GEMINI_API_KEY, ANALYSIS_PROVIDER,
- * ANALYSIS_MODEL, ANALYSIS_INTERVAL_MS) is agent/src/model-client.ts's
- * contract, read the same way agent/src/replay.ts already reads it.
- */
+/** Registry configuration shared by the combined gateway and server package entrypoint. */
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { resolveModelSetup } from "../../agent/src/model-client.ts";
-import { createGateway } from "./gateway.ts";
+import type { SessionAnalyzerOptions } from "./session.ts";
 import { SessionRegistry } from "./session-registry.ts";
 import { ReplaySource } from "./replay-source.ts";
 import { BrowserTranscriptSource } from "./browser-source.ts";
+import {
+  attachSessionWebSocket,
+  createSessionHttpHandler,
+} from "./gateway.ts";
 import type { TranscriptSourceKind } from "../../shared/src/index.ts";
 
-const PORT = Number(process.env.PORT) || 8787;
-const DEFAULT_TRANSPORT = (process.env.DEFAULT_TRANSPORT as TranscriptSourceKind | undefined) ?? "replay";
-const REPLAY_SPEED = Number(process.env.REPLAY_SPEED) || 8;
+export type SessionRuntime = {
+  registry: SessionRegistry;
+  analysisConfigured: boolean;
+  modelDescription: string;
+  defaultTransport: TranscriptSourceKind;
+};
 
-let modelSetup;
-try {
-  modelSetup = resolveModelSetup();
-} catch (cause) {
-  console.error(cause instanceof Error ? cause.message : String(cause));
-  console.error("Put a model key in server/.env or agent/.env — npm run dev reads both.");
-  process.exit(1);
+function transportFromEnv(value: string | undefined): TranscriptSourceKind {
+  return value === "replay" || value === "livekit" || value === "twilio"
+    ? value
+    : "replay";
 }
 
-const registry = new SessionRegistry({
-  defaultTransportKind: DEFAULT_TRANSPORT,
-  createTranscriptSource: (kind) => {
-    if (kind === "replay") return new ReplaySource(undefined, REPLAY_SPEED);
-    // The browser rung (web/) pushes segments over HTTP instead of this
-    // process pulling them — see browser-source.ts and gateway.ts's
-    // POST /session/:id/segments route.
-    if (kind === "livekit") return new BrowserTranscriptSource();
-    // Twilio's transcript source is another track's work — see
-    // add-twilio-call-transport.
-    throw new Error(`transport "${kind}" has no TranscriptSource in this build — use "replay" or "livekit"`);
-  },
-  analyzer: {
-    client: modelSetup.client,
-    model: modelSetup.model,
-    supportsStrictSchema: modelSetup.supportsStrictSchema,
-    intervalMs: modelSetup.suggestedIntervalMs,
-  },
-});
+function unavailableAnalyzerClient(): SessionAnalyzerOptions["client"] {
+  return {
+    chat: {
+      completions: {
+        create: async () => {
+          throw new Error("Risk analysis unavailable: configure an OpenAI or Gemini model key.");
+        },
+      },
+    },
+  } as unknown as SessionAnalyzerOptions["client"];
+}
 
-const server = createGateway(registry);
-server.listen(PORT, () => {
-  console.log(`SecureGuIA gateway listening on :${PORT}`);
-  console.log(`  ${modelSetup.provider} · ${modelSetup.model}`);
-  console.log(`  default transport: ${DEFAULT_TRANSPORT}${DEFAULT_TRANSPORT === "replay" ? ` (speed ${REPLAY_SPEED}x)` : ""}`);
-  console.log(`  POST http://localhost:${PORT}/session`);
-  console.log(`  WS   ws://localhost:${PORT}/session/:id`);
-});
+/** Build the legacy session registry without binding a port or requiring a model key. */
+export function createSessionRuntime(env: NodeJS.ProcessEnv = process.env): SessionRuntime {
+  const defaultTransport = transportFromEnv(env.DEFAULT_TRANSPORT);
+  const replaySpeed = Number(env.REPLAY_SPEED) || 8;
+  let analyzer: SessionAnalyzerOptions;
+  let analysisConfigured = true;
+  let modelDescription: string;
+
+  try {
+    const setup = resolveModelSetup(env);
+    analyzer = {
+      client: setup.client,
+      model: setup.model,
+      supportsStrictSchema: setup.supportsStrictSchema,
+      intervalMs: setup.suggestedIntervalMs,
+    };
+    modelDescription = `${setup.provider} · ${setup.model}`;
+  } catch {
+    analysisConfigured = false;
+    modelDescription = "risk analysis unavailable (no model key)";
+    analyzer = { client: unavailableAnalyzerClient(), intervalMs: 60_000 };
+  }
+
+  const registry = new SessionRegistry({
+    defaultTransportKind: defaultTransport,
+    createTranscriptSource: (kind) => {
+      if (kind === "replay") return new ReplaySource(undefined, replaySpeed);
+      if (kind === "livekit") return new BrowserTranscriptSource();
+      throw new Error(
+        `transport "${kind}" has no TranscriptSource in this build — use "replay" or "livekit"`,
+      );
+    },
+    analyzer,
+  });
+
+  return { registry, analysisConfigured, modelDescription, defaultTransport };
+}
+
+export function createSessionExtension(runtime: SessionRuntime) {
+  return {
+    handleHttp: createSessionHttpHandler(runtime.registry, {
+      canCreateSession: () => runtime.analysisConfigured,
+      unavailableMessage:
+        "Replay sessions require risk analysis. Set OPENAI_API_KEY or GEMINI_API_KEY and restart the gateway.",
+    }),
+    attachWebSocket: (server: import("node:http").Server) => {
+      const attachment = attachSessionWebSocket(server, runtime.registry);
+      return {
+        async close() {
+          try {
+            await attachment.close();
+          } finally {
+            await runtime.registry.dispose();
+          }
+        },
+      };
+    },
+  };
+}
+
+async function runCombinedGateway(): Promise<void> {
+  const { createDemoServer } = await import("../../agent/src/demo-server.ts");
+  const runtime = createSessionRuntime();
+  const port = Number(process.env.PORT ?? 8787);
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("PORT must be between 1 and 65535.");
+  }
+  const app = createDemoServer({
+    onLog: console.log,
+    extension: createSessionExtension(runtime),
+  });
+  app.server.listen(port, process.env.HOST ?? "0.0.0.0", () => {
+    console.log(`SecureGuIA combined gateway listening on :${port}`);
+    console.log(`  ${runtime.modelDescription}`);
+    console.log(`  legacy session transport: ${runtime.defaultTransport}`);
+    console.log(`  POST http://localhost:${port}/api/join`);
+    console.log(`  POST http://localhost:${port}/session`);
+    console.log(`  WS   ws://localhost:${port}/session/:id`);
+  });
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.once(signal, () => {
+      const deadline = setTimeout(() => process.exit(1), 12_000);
+      deadline.unref();
+      void app.stop().then(() => {
+        clearTimeout(deadline);
+        process.exit(0);
+      });
+    });
+  }
+}
+
+const invokedPath = process.argv[1] ? resolve(process.argv[1]) : undefined;
+if (invokedPath === fileURLToPath(import.meta.url)) {
+  void runCombinedGateway().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
