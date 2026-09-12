@@ -1,13 +1,21 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "Room Tap",
+    "slug": "room-tap",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.hackaton.roomtap",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "Room Tap uses the microphone to carry your side of the call and to transcribe it.",
+        "UIBackgroundModes": [
+          "audio",
+          "voip"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -16,7 +24,14 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "dev.hackaton.roomtap",
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.INTERNET"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -24,6 +39,7 @@
     "plugins": [
       "@livekit/react-native-expo-plugin",
       "@config-plugins/react-native-webrtc"
-    ]
+    ],
+    "scheme": "roomtap"
   }
 }
