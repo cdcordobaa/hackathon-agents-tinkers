@@ -1,0 +1,23 @@
+{
+  "name": "secureguia-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "replay": "node --env-file-if-exists=../mobile/.env --env-file-if-exists=.env --import tsx src/replay.ts",
+    "test": "node --import tsx --test src/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "node --env-file-if-exists=.env --import tsx src/check.ts",
+    "transcribe": "node --env-file-if-exists=.env --import tsx src/transcribe-file.ts"
+  },
+  "dependencies": {
+    "@livekit/rtc-node": "^1.0.0",
+    "livekit-server-sdk": "^2.19.0",
+    "openai": "^6.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.7.0"
+  }
+}
