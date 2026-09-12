@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "replay": "node --env-file-if-exists=../mobile/.env --env-file-if-exists=.env --import tsx src/replay.ts",
+    "demo": "node --env-file-if-exists=../mobile/.env --env-file-if-exists=.env --import tsx src/replay.ts --speed 1 --interval 5000",
     "test": "node --import tsx --test src/*.test.ts",
     "typecheck": "tsc --noEmit",
     "check": "node --env-file-if-exists=.env --import tsx src/check.ts",
