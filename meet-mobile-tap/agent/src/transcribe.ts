@@ -14,10 +14,9 @@
  * behaviour it suppresses.
  */
 import { toWav } from "./audio-chunker.ts";
+import { setTimeout as delay } from "node:timers/promises";
 
 const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
-const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
-const MAX_ATTEMPTS = 2;
 
 const PROMPT = [
   "Transcribe this audio verbatim.",
@@ -38,16 +37,54 @@ export type TranscribeOptions = {
   /** Audio understanding needs a full Flash; set TRANSCRIBE_MODEL to override. */
   model?: string;
   signal?: AbortSignal;
+  /** Total budget, including the single transient-error retry. */
+  timeoutMs?: number;
+  retryDelayMs?: number;
 };
+
+export type TranscriptionFailure = "timeout" | "network" | "quota" | "authentication" | "model" | "provider" | "response";
+
+export class TranscriptionError extends Error {
+  constructor(readonly kind: TranscriptionFailure, message: string, readonly retryable = false) {
+    super(message);
+    this.name = "TranscriptionError";
+  }
+}
+
+/** Environment mistakes cannot disable the deadline or create unbounded waits. */
+export function transcriptionTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const value = Number(env.TRANSCRIBE_TIMEOUT_MS ?? 30_000);
+  return Number.isInteger(value) && value >= 5_000 && value <= 60_000 ? value : 30_000;
+}
+
+function httpFailure(status: number): TranscriptionError {
+  if (status === 429) return new TranscriptionError("quota", "Transcription quota exceeded. Check Gemini quota and billing, then retry.", true);
+  if (status === 401 || status === 403) return new TranscriptionError("authentication", "Gemini rejected transcription access. Check the server API key and project permissions.");
+  if (status === 400 || status === 404) return new TranscriptionError("model", "Gemini rejected the transcription model or request. Check TRANSCRIBE_MODEL.");
+  return new TranscriptionError("provider", `Transcription service returned HTTP ${status}.`, status >= 500);
+}
+
+/** A healthy speaker must not clear a different speaker's unresolved failure. */
+export class TranscriptionFailures {
+  private readonly failures = new Map<string, string>();
+  fail(speaker: string, error: Error): void {
+    this.failures.set(speaker, error instanceof TranscriptionError ? error.message : "Transcription failed. Check the server connection to Gemini.");
+  }
+  recover(speaker: string): boolean { return this.failures.delete(speaker); }
+  get details(): string[] { return [...new Set(this.failures.values())]; }
+}
 
 export async function transcribeChunk(
   pcm: Int16Array,
   sampleRate: number,
-  { apiKey, model, signal }: TranscribeOptions,
+  { apiKey, model, signal, timeoutMs = transcriptionTimeoutMs(), retryDelayMs = 500 }: TranscribeOptions,
 ): Promise<string> {
   const chosen = model ?? process.env.TRANSCRIBE_MODEL ?? "gemini-2.5-flash";
   const wav = toWav(pcm, sampleRate);
-  const request = {
+
+  const deadline = AbortSignal.timeout(timeoutMs);
+  const requestSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+  const body = JSON.stringify({
     contents: [
       {
         parts: [
@@ -59,59 +96,55 @@ export async function transcribeChunk(
     generationConfig: {
       // Transcription is not a creative task; sampling only invents words.
       temperature: 0,
+      // Literal speech recognition does not need Flash's dynamic reasoning.
+      ...(chosen === "gemini-2.5-flash" ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
     },
-  };
-
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    const response = await fetch(`${ENDPOINT}/${chosen}:generateContent?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal,
-      body: JSON.stringify(request),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text();
-      if (attempt < MAX_ATTEMPTS && TRANSIENT_STATUSES.has(response.status)) {
-        await waitForRetry(response.headers.get("retry-after"), signal);
-        continue;
-      }
-      throw new Error(`Transcription failed (${response.status}): ${detail.slice(0, 200)}`);
-    }
-
-    return transcriptText((await response.json()) as GeminiResponse);
-  }
-
-  throw new Error("Transcription failed after retrying Gemini.");
-}
-
-type GeminiResponse = {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-
-function transcriptText(body: GeminiResponse): string {
-  const text = (body.candidates?.[0]?.content?.parts ?? [])
-    .map((part) => part.text ?? "")
-    .join("")
-    .trim();
-
-  return NO_SPEECH.test(text) ? "" : text;
-}
-
-/** Gemini can briefly throttle concurrent speakers. Respect its retry hint when
- * present, otherwise make one short retry without retaining audio indefinitely. */
-async function waitForRetry(retryAfter: string | null, signal?: AbortSignal): Promise<void> {
-  const seconds = retryAfter ? Number(retryAfter) : Number.NaN;
-  const delayMs = Number.isFinite(seconds) && seconds >= 0
-    ? Math.min(seconds * 1_000, 15_000)
-    : 1_500;
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(resolve, delayMs);
-    const abort = () => {
-      clearTimeout(timer);
-      reject(signal?.reason ?? new DOMException("Aborted", "AbortError"));
-    };
-    if (signal?.aborted) return abort();
-    signal?.addEventListener("abort", abort, { once: true });
   });
+  const checkAbort = () => {
+    if (signal?.aborted) throw signal.reason;
+    if (deadline.aborted) throw new TranscriptionError("timeout", `Transcription timed out after ${Math.round(timeoutMs / 1_000)}s. Check the connection or retry.`);
+  };
+  for (let attempt = 0; ; attempt += 1) {
+    checkAbort();
+    let retryAfterMs = retryDelayMs;
+    try {
+      const response = await fetch(`${ENDPOINT}/${encodeURIComponent(chosen)}:generateContent`, {
+        method: "POST",
+        // Keep credentials out of URLs and network-error strings.
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        signal: requestSignal,
+        body,
+      });
+      if (!response.ok) {
+        const retryAfter = response.headers.get("retry-after");
+        if (retryAfter) {
+          const seconds = Number(retryAfter);
+          retryAfterMs = Number.isFinite(seconds) ? Math.max(0, seconds * 1000) : Math.max(0, Date.parse(retryAfter) - Date.now());
+        }
+        await response.body?.cancel();
+        throw httpFailure(response.status);
+      }
+      const result = await response.json() as {
+        candidates?: { finishReason?: string; content?: { parts?: { text?: string; thought?: boolean }[] } }[];
+      };
+      const candidate = result?.candidates?.[0];
+      const parts = candidate?.content?.parts;
+      if (!Array.isArray(parts) || (candidate?.finishReason && candidate.finishReason !== "STOP")) {
+        throw new TranscriptionError("response", "Gemini did not return a complete transcript. The audio segment could not be transcribed.");
+      }
+      const text = parts.filter((part) => part && !part.thought && typeof part.text === "string")
+        .map((part) => part.text).join("").trim();
+      if (!text) throw new TranscriptionError("response", "Gemini returned an empty transcript. The audio segment could not be transcribed.");
+      return NO_SPEECH.test(text) ? "" : text;
+    } catch (cause) {
+      checkAbort();
+      const error = cause instanceof TranscriptionError ? cause
+        : cause instanceof SyntaxError ? new TranscriptionError("response", "Gemini returned an unreadable transcription response.")
+        : new TranscriptionError("network", "Cannot reach Gemini for transcription. Check the server network connection.", true);
+      if (attempt > 0 || !error.retryable || !Number.isFinite(retryAfterMs) || retryAfterMs > 2_000) throw error;
+      // One short retry; quota waits longer than 2s are surfaced instead of hammered.
+      try { await delay(retryAfterMs, undefined, { signal: requestSignal }); }
+      catch { checkAbort(); throw error; }
+    }
+  }
 }

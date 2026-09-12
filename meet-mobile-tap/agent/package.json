@@ -8,6 +8,7 @@
     "dev": "npm run build:web && node --env-file-if-exists=../mobile/.env --env-file-if-exists=.env --import tsx src/serve.ts",
     "dev:local": "LIVEKIT_URL=ws://127.0.0.1:7880 LIVEKIT_API_KEY=devkey LIVEKIT_API_SECRET=secret npm run dev",
     "smoke:local": "node --import tsx src/smoke-livekit.ts",
+    "smoke:transcription": "node --env-file-if-exists=.env --import tsx src/smoke-transcription.ts",
     "livekit:local": "livekit-server --dev --config livekit-local.yaml",
     "start": "node --env-file-if-exists=../mobile/.env --env-file-if-exists=.env --import tsx src/serve.ts",
     "replay": "node --env-file-if-exists=../mobile/.env --env-file-if-exists=.env --import tsx src/replay.ts",

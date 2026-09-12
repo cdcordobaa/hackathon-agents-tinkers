@@ -124,3 +124,15 @@ test("formatClock pads and rolls over minutes", () => {
   assert.equal(formatClock(61_000), "[01:01]");
   assert.equal(formatClock(-5), "[00:00]");
 });
+
+test("late provider replies keep capture order without losing newly pending segments", () => {
+  const transcript = new RollingTranscript(fakeClock().now);
+  transcript.final("subject", "mi respuesta", 8_000);
+  transcript.markAnalyzed();
+  transcript.final("caller", "una pregunta anterior", 2_000);
+  assert.equal(transcript.pendingSegments, 1);
+  assert.equal(transcript.renderPending(), "[00:02] caller: una pregunta anterior");
+  assert.equal(transcript.render(), "[00:02] caller: una pregunta anterior\n[00:08] subject: mi respuesta");
+  transcript.markAnalyzed();
+  assert.equal(transcript.pendingSegments, 0);
+});
