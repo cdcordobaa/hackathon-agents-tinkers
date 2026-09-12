@@ -24,14 +24,16 @@ import {
 import { StatusBar } from "expo-status-bar";
 import {
   AudioSession,
+  ConnectionState,
+  IS_PREVIEW,
   LiveKitRoom,
+  Track,
   useConnectionState,
   useLocalParticipant,
   useTracks,
   useTrackVolume,
   type TrackReferenceOrPlaceholder,
-} from "@livekit/react-native";
-import { ConnectionState, Track } from "livekit-client";
+} from "./src/livekit";
 
 const SERVER_URL = process.env.EXPO_PUBLIC_LIVEKIT_URL;
 const TOKEN = process.env.EXPO_PUBLIC_LIVEKIT_TOKEN;
@@ -54,7 +56,9 @@ export default function App() {
     };
   }, []);
 
-  const configured = Boolean(SERVER_URL && TOKEN);
+  // In Expo Go there is no room to connect to, so credentials are beside the
+  // point — the preview renders the call UI against fake state instead.
+  const configured = Boolean(SERVER_URL && TOKEN) || IS_PREVIEW;
 
   if (!configured) {
     return <SetupNeeded />;
@@ -197,13 +201,33 @@ function Shell({ children }: { children: React.ReactNode }) {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="light" />
+      {IS_PREVIEW ? <PreviewBanner /> : null}
       <View style={styles.page}>{children}</View>
     </SafeAreaView>
   );
 }
 
+/**
+ * Non-dismissable, and that is the point.
+ *
+ * Per ../CLAUDE.md the expected failure on mobile is silence that looks exactly
+ * like success. A meter moving on synthetic data is that failure with a friendly
+ * face, so the preview has to announce itself on every screen it renders.
+ */
+function PreviewBanner() {
+  return (
+    <View style={styles.banner}>
+      <Text style={styles.bannerText}>
+        Expo Go preview — synthetic audio, no capture. Meters prove nothing here.
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#0E1416" },
+  banner: { backgroundColor: "#4A3520", paddingHorizontal: 24, paddingVertical: 10 },
+  bannerText: { color: "#F0C89A", fontSize: 12, lineHeight: 17, fontWeight: "600" },
   page: { flex: 1, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 32, gap: 12 },
   eyebrow: {
     color: "#3FC6D1",
