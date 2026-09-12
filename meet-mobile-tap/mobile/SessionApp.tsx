@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { SafeAreaView } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { CopilotKitProvider } from "@copilotkit/react-native/headless";
 import { AudioSession, LiveKitRoom } from "@livekit/react-native";
@@ -12,6 +11,7 @@ import { SetupScreen, type CallRole, type MobileTransport } from "./src/screens/
 import { ConsentScreen } from "./src/screens/ConsentScreen";
 import { CallScreen } from "./src/screens/CallScreen";
 import { SummaryScreen } from "./src/screens/SummaryScreen";
+import { SafeArea } from "./src/SafeArea";
 import { styles } from "./src/styles";
 
 type Screen = "setup" | "consent" | "call" | "summary";
@@ -257,9 +257,9 @@ function SessionFlow({ assistantEnabled }: { assistantEnabled: boolean }) {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeArea style={styles.safe}>
       <StatusBar style="light" />
       {body}
-    </SafeAreaView>
+    </SafeArea>
   );
 }
