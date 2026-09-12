@@ -1,4 +1,4 @@
-# SecureGuIA — browser and mobile calls
+# Xentinela — browser and mobile calls
 
 Two people join the same LiveKit room from a browser or the Expo app. A server-side
 participant receives their consented audio, transcribes it with Gemini, and publishes
@@ -135,8 +135,8 @@ npm run typecheck
 cd ../mobile
 npm test
 npx tsc --noEmit
-npx expo export --platform ios --output-dir /tmp/secureguia-ios-export
-npx expo export --platform android --output-dir /tmp/secureguia-android-export
+npx expo export --platform ios --output-dir /tmp/xentinela-ios-export
+npx expo export --platform android --output-dir /tmp/xentinela-android-export
 ```
 
 The local smoke test joins two real RTC clients through the gateway and verifies

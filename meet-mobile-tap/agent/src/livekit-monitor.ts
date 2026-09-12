@@ -415,7 +415,7 @@ export async function createLiveKitMonitor(
 
   const token = new AccessToken(options.apiKey, options.apiSecret, {
     identity: MONITOR_IDENTITY,
-    name: "SecureGuIA monitor",
+    name: "Xentinela monitor",
     ttl: "2h",
   });
   token.addGrant({
@@ -437,7 +437,7 @@ export async function createLiveKitMonitor(
     );
   } catch {
     await withTimeout(room.disconnect(), 2_000, "LiveKit disconnect timed out.").catch(() => {});
-    throw new Error(`Could not connect the SecureGuIA monitor to room ${safeLabel(options.roomName)}.`);
+    throw new Error(`Could not connect the Xentinela monitor to room ${safeLabel(options.roomName)}.`);
   }
 
   for (const participant of room.remoteParticipants.values()) {
@@ -447,7 +447,7 @@ export async function createLiveKitMonitor(
     }
   }
   analyzer?.start();
-  log(`SecureGuIA monitor joined ${safeLabel(options.roomName)} at 24 kHz mono.`);
+  log(`Xentinela monitor joined ${safeLabel(options.roomName)} at 24 kHz mono.`);
   publishNow();
   if (!transportDisconnected) {
     heartbeat = setInterval(() => requestPublish(), SNAPSHOT_INTERVAL_MS);
@@ -498,7 +498,7 @@ export async function createLiveKitMonitor(
           ).catch(() => log("Final session snapshot could not be published."));
         }
         await withTimeout(room.disconnect(), 2_000, "LiveKit disconnect timed out.").catch(() => {});
-        log("SecureGuIA monitor stopped after flushing accepted work.");
+        log("Xentinela monitor stopped after flushing accepted work.");
       })();
       return stopPromise;
     },

@@ -22,7 +22,7 @@ export function Shield({
 
   return (
     <Screen>
-      <TopBar title="Centinela" subtitle="Call protection" />
+      <TopBar title="Xentinela" subtitle="Call protection" />
 
       <View
         style={[

@@ -45,7 +45,7 @@ test("mobile join uses a human identity and receives consent-bound room credenti
     assert.equal(credentials.roomName, "mobile-integration");
     assert.equal(credentials.monitorIdentity, MONITOR_IDENTITY);
     assert.match(credentials.identity, /^mobile-[a-z0-9-]+$/);
-    assert.doesNotMatch(credentials.identity, /^secureguia-/);
+    assert.doesNotMatch(credentials.identity, /^xentinela-/);
     assert.equal(monitorOptions?.roomName, "mobile-integration");
 
     const claims = await new TokenVerifier(API_KEY, API_SECRET).verify(credentials.token);

@@ -1,4 +1,4 @@
-# SecureGuIA — phased build plan
+# Xentinela — phased build plan
 
 An anti-fraud agent that sits inside a live call, detects social-engineering in real time,
 intervenes mid-call, and produces a case file afterwards.

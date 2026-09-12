@@ -109,7 +109,7 @@ async function runCombinedGateway(): Promise<void> {
     extension: createSessionExtension(runtime),
   });
   app.server.listen(port, process.env.HOST ?? "0.0.0.0", () => {
-    console.log(`SecureGuIA combined gateway listening on :${port}`);
+    console.log(`Xentinela combined gateway listening on :${port}`);
     console.log(`  ${runtime.modelDescription}`);
     console.log(`  legacy session transport: ${runtime.defaultTransport}`);
     console.log(`  POST http://localhost:${port}/api/join`);

@@ -46,7 +46,7 @@ export function SetupScreen({
 }) {
   return (
     <ScrollView contentContainerStyle={styles.scrollPage} keyboardShouldPersistTaps="handled">
-      <Text style={styles.eyebrow}>SecureGuIA</Text>
+      <Text style={styles.eyebrow}>Xentinela</Text>
       <Text style={styles.title}>Start a monitored call</Text>
       <Text style={styles.body}>
         Join the same LiveKit room as the other caller and see risk signals tied to what was

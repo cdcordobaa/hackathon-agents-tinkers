@@ -15,7 +15,7 @@ export type AppConfig = {
   tokenServerUrl: string;
 };
 
-const STORAGE_KEY = "secureguia.web.config";
+const STORAGE_KEY = "xentinela.web.config";
 
 const DEFAULTS: AppConfig = {
   livekitUrl: (import.meta.env.VITE_LIVEKIT_URL as string | undefined) ?? "",

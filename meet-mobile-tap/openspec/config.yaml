@@ -1,7 +1,7 @@
 schema: spec-driven
 
 context: |
-  SecureGuIA (meet-mobile-demo) — an anti-fraud agent that sits inside a live
+  Xentinela (meet-mobile-demo) — an anti-fraud agent that sits inside a live
   call, detects social-engineering in real time, can intervene mid-call, and
   produces a case file afterwards. Hackathon: AI Tinkerers "Agents, Everywhere",
   12-13 September 2026. Surface: "In the room".

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// status.mjs — derives SecureGuIA's build status straight from the repo on disk.
+// status.mjs — derives Xentinela's build status straight from the repo on disk.
 //
 // Zero dependencies, on purpose: this has to run cleanly while three other
 // workflows are mid-write in shared/, server/ and mobile/. Every fact below is
@@ -759,7 +759,7 @@ function renderEnvVars(pkgEnv) {
 
 function renderHuman(report) {
   const lines = [];
-  lines.push(c.bold("SecureGuIA — repo status") + c.dim(`  (${report.generatedAt})`));
+  lines.push(c.bold("Xentinela — repo status") + c.dim(`  (${report.generatedAt})`));
   lines.push("");
 
   for (const t of report.tracks) {

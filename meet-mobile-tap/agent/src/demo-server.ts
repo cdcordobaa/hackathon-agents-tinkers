@@ -35,7 +35,7 @@ function parseJoin(value: unknown): JoinRequest | null {
   if (v.consent !== true || typeof v.role !== "string" || !["subject", "counterparty"].includes(v.role)) return null;
   if (typeof v.roomName !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(v.roomName)) return null;
   if (typeof v.identity !== "string" || !/^[a-zA-Z0-9_-]{1,64}$/.test(v.identity) ||
-    v.identity.startsWith("secureguia-")) return null;
+    v.identity.startsWith("xentinela-")) return null;
   if (typeof v.displayName !== "string" || !v.displayName.trim() ||
     v.displayName.length > 80 || /[\x00-\x1f\x7f]/.test(v.displayName)) return null;
   return { ...v, displayName: v.displayName.trim() } as JoinRequest;

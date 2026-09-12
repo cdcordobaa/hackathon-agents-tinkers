@@ -68,7 +68,7 @@ function runStatus() {
   // lost. Piping through execFileSync's buffer looked fine on a small report
   // and only broke once the JSON grew past one page; a temp file sidesteps
   // the whole failure mode rather than trusting a size threshold to hold.
-  const tmpFile = join(tmpdir(), `secureguia-status-${process.pid}-${Date.now()}.json`);
+  const tmpFile = join(tmpdir(), `xentinela-status-${process.pid}-${Date.now()}.json`);
   const fd = openSync(tmpFile, "w");
   try {
     execFileSync("node", [join(REPO_ROOT, "scripts", "status.mjs"), "--json"], {

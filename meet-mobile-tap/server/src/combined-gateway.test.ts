@@ -46,7 +46,7 @@ test("one HTTP server serves the call UI, LiveKit join, and consented replay ses
   try {
     const index = await fetch(`${baseUrl}/`);
     assert.equal(index.status, 200);
-    assert.match(await index.text(), /SecureGuIA/i);
+    assert.match(await index.text(), /Xentinela/i);
 
     const health = await fetch(`${baseUrl}/api/health`);
     assert.equal(health.status, 200);

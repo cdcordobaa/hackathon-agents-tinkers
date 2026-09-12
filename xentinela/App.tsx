@@ -1,5 +1,5 @@
 /**
- * Centinela — the app shell.
+ * Xentinela — the app shell.
  *
  * Navigation is hand-rolled on purpose: four tabs and a one-level stack is the
  * whole map, and doing it with plain state keeps the project free of native

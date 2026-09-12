@@ -158,7 +158,7 @@ test("concurrent joins to one room share a single monitor startup", async () => 
   );
 });
 
-test("reserved SecureGuIA identities cannot request human join tokens", async () => {
+test("reserved Xentinela identities cannot request human join tokens", async () => {
   let starts = 0;
   await withServer(
     {
@@ -169,7 +169,7 @@ test("reserved SecureGuIA identities cannot request human join tokens", async ()
       },
     },
     async (baseUrl) => {
-      for (const identity of [MONITOR_IDENTITY, "secureguia-admin"]) {
+      for (const identity of [MONITOR_IDENTITY, "xentinela-admin"]) {
         const response = await postJoin(baseUrl, { ...validJoin, identity });
         assert.equal(response.status, 400);
       }

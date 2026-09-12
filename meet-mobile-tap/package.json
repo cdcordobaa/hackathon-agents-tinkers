@@ -1,8 +1,8 @@
 {
-  "name": "secureguia",
+  "name": "xentinela",
   "version": "0.1.0",
   "private": true,
-  "description": "SecureGuIA browser and native call clients with one local gateway.",
+  "description": "Xentinela browser and native call clients with one local gateway.",
   "scripts": {
     "setup:gateway": "npm --prefix agent ci && npm --prefix server ci",
     "dev": "npm --prefix agent run dev",

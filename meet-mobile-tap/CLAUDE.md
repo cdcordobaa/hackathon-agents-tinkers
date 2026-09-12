@@ -1,4 +1,4 @@
-# SecureGuIA — call audio capture on mobile, full React Native
+# Xentinela — call audio capture on mobile, full React Native
 
 Hackathon: AI Tinkerers "Agents, Everywhere", 12–13 September 2026. Surface: **In the room**.
 Sibling: `../agents-everywhere-starter-kit` (web `/voice` has a tab+mic stereo tap → OpenAI

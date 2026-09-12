@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Room Tap",
+    "name": "Xentinela",
     "slug": "room-tap",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -8,10 +8,10 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.hackaton.roomtap",
+      "bundleIdentifier": "dev.hackaton.xentinela",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "Room Tap uses the microphone to carry your side of the call and to transcribe it.",
-        "NSLocalNetworkUsageDescription": "Room Tap connects to the SecureGuIA demo gateway running on your local network.",
+        "NSMicrophoneUsageDescription": "Xentinela uses the microphone to carry your side of the call and to transcribe it.",
+        "NSLocalNetworkUsageDescription": "Xentinela connects to the Xentinela demo gateway running on your local network.",
         "NSAppTransportSecurity": {
           "NSAllowsLocalNetworking": true
         },
@@ -19,7 +19,8 @@
           "audio",
           "voip"
         ]
-      }
+      },
+      "bitcode": false
     },
     "android": {
       "adaptiveIcon": {
@@ -29,12 +30,17 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "dev.hackaton.roomtap",
+      "package": "dev.hackaton.xentinela",
       "permissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.BLUETOOTH_CONNECT",
-        "android.permission.INTERNET"
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.CAMERA",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.WAKE_LOCK",
+        "android.permission.BLUETOOTH"
       ]
     },
     "web": {
@@ -45,6 +51,12 @@
       "@config-plugins/react-native-webrtc",
       "./plugins/with-demo-cleartext.js"
     ],
-    "scheme": "roomtap"
+    "scheme": "xentinela",
+    "extra": {
+      "eas": {
+        "projectId": "f810ecc2-8642-410d-91c5-32cb64b5ca7f"
+      }
+    },
+    "owner": "tobyarcus"
   }
 }

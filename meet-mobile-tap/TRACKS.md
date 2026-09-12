@@ -11,7 +11,7 @@ on this project, goes stale the moment someone lands a commit.
 
 ## The product, one paragraph
 
-SecureGuIA watches a live phone call in real time and tells the person on it when they are
+Xentinela watches a live phone call in real time and tells the person on it when they are
 being socially engineered. A transcript accumulates turn by turn; every few seconds a model
 re-reads it and returns a risk band, a score, a plain-language headline, verbatim-quoted
 signals, and advice — not once at the end, but progressively, so the score climbs as a scam

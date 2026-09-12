@@ -1,4 +1,4 @@
-# Centinela — app shell
+# Xentinela — app shell
 
 The client UI for the call-scam sentinel. Front end only: every screen runs on
 in-memory state, and no detection, telephony or messaging is wired in yet.

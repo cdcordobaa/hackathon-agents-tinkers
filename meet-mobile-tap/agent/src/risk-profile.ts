@@ -6,7 +6,7 @@
  * product means changing this file and nothing else.
  *
  * Current shape: a live risk profile for the person on the call, aimed at
- * social-engineering and fraud pretexts. If SecureGuIA is meant to score
+ * social-engineering and fraud pretexts. If Xentinela is meant to score
  * something else, replace the schema and the prompt together — the analyzer
  * does not care what comes back.
  */

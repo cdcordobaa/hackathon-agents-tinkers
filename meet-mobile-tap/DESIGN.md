@@ -1,6 +1,6 @@
-# SecureGuIA interface
+# Xentinela interface
 
-SecureGuIA is a calm call-room instrument. It should make live state, observed audio, current evidence, and the next safe action legible within a glance. The browser and mobile surfaces share the same dark teal identity and direct language.
+Xentinela is a calm call-room instrument. It should make live state, observed audio, current evidence, and the next safe action legible within a glance. The browser and mobile surfaces share the same dark teal identity and direct language.
 
 ## Palette
 

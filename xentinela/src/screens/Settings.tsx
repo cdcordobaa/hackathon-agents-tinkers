@@ -68,7 +68,7 @@ export function Settings({ onOpenPrivacy }: { onOpenPrivacy: () => void }) {
         />
       </Card>
 
-      <Text style={s.version}>Centinela · demo build</Text>
+      <Text style={s.version}>Xentinela · demo build</Text>
     </Screen>
   );
 }

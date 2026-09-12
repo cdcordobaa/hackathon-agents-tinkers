@@ -786,7 +786,7 @@ function renderCall(): void {
     ui.monitorDetail,
     snapshot && !snapshotIsCurrent()
       ? "Monitor update is stale; this transcript may be out of date"
-      : snapshot?.detail || (isPreview ? "Simulated monitor is updating" : "Waiting for the SecureGuIA monitor"),
+      : snapshot?.detail || (isPreview ? "Simulated monitor is updating" : "Waiting for the Xentinela monitor"),
   );
   setText(ui.transcriptCount, `${snapshot?.turns.length ?? 0} ${(snapshot?.turns.length ?? 0) === 1 ? "turn" : "turns"}`);
   renderParticipants();
@@ -1044,7 +1044,7 @@ function renderUnavailableRisk(headline: string, advice?: string): void {
   ui.riskScaleFill.style.transform = "scaleX(0)";
   setText(
     ui.riskAdvice,
-    advice ?? "Keep listening. SecureGuIA will show a specific next step when current evidence is available.",
+    advice ?? "Keep listening. Xentinela will show a specific next step when current evidence is available.",
   );
   ui.evidenceList.replaceChildren();
   setText(ui.evidenceCount, "0 signals");

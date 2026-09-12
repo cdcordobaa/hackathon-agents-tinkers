@@ -2,8 +2,8 @@
 import type { RiskProfile } from "../agent/src/risk-profile.ts";
 export type { RiskProfile, RiskLevel, Signal } from "../agent/src/risk-profile.ts";
 
-export const SESSION_TOPIC = "secureguia.session";
-export const MONITOR_IDENTITY = "secureguia-monitor";
+export const SESSION_TOPIC = "xentinela.session";
+export const MONITOR_IDENTITY = "xentinela-monitor";
 
 export type CallParticipant = {
   id: string;

@@ -13,7 +13,7 @@ const app = createDemoServer({
   extension: createSessionExtension(sessionRuntime),
 });
 app.server.listen(port, process.env.HOST ?? "0.0.0.0", () => {
-  console.log(`SecureGuIA combined gateway: http://localhost:${port}`);
+  console.log(`Xentinela combined gateway: http://localhost:${port}`);
   for (const addresses of Object.values(networkInterfaces())) {
     for (const address of addresses ?? []) {
       if (address.family === "IPv4" && !address.internal) console.log(`Phone gateway URL: http://${address.address}:${port}`);

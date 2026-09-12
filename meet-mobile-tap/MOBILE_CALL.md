@@ -1,7 +1,7 @@
 # Conectar el móvil a una llamada web
 
 Web y móvil entran al mismo proyecto LiveKit y al mismo nombre de sala. El móvil
-publica su micrófono; el participante `secureguia-monitor` procesa el audio en el
+publica su micrófono; el participante `xentinela-monitor` procesa el audio en el
 servidor con Gemini y devuelve la transcripción y la evaluación a los dos clientes.
 
 ## 1. Gateway en el computador
