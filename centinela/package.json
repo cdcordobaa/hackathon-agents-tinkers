@@ -1,0 +1,28 @@
+{
+  "name": "centinela",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@expo/metro-runtime": "~57.0.15",
+    "@expo/vector-icons": "^15.1.1",
+    "expo": "~57.0.22",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-dom": "^19.2.3",
+    "react-native": "0.86.3",
+    "react-native-web": "^0.21.2"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start --port 8088",
+    "go": "expo start --go --port 8088",
+    "web": "expo start --web --port 8088",
+    "android": "expo start --android --port 8088",
+    "ios": "expo start --ios --port 8088",
+    "typecheck": "tsc --noEmit"
+  },
+  "private": true
+}
