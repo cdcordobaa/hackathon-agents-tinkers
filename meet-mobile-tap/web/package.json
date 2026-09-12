@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "token": "node scripts/mint-token.mjs",
+    "token": "node --env-file-if-exists=.env scripts/mint-token.mjs",
+    "preflight": "node --env-file-if-exists=.env scripts/preflight-livekit.mjs",
     "token-server": "node --env-file-if-exists=.env token-server/server.mjs"
   },
   "dependencies": {

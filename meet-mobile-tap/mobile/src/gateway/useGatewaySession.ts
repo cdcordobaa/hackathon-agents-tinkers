@@ -28,6 +28,9 @@ export function useGatewaySession(attemptKey: number | string) {
   return {
     state,
     start: (transport: TranscriptSourceKind) => client.start(transport),
+    /** Attaches to a session someone else already created — see
+     *  client.ts's `join()`. Never sends `session.start`. */
+    join: (sessionId: string) => client.join(sessionId),
     grantConsent: () => client.grantConsent(),
     declineConsent: () => client.declineConsent(),
     endSession: () => client.endSession(),

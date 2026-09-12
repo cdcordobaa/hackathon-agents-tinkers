@@ -67,8 +67,10 @@ export function LiveKitCallPanel() {
       <View style={styles.card}>
         <Text style={styles.subtitle}>Join the call audio</Text>
         <Text style={styles.body}>
-          Opens a real WebRTC call. Bring a second participant in from a browser or another phone,
-          then watch both meters move.
+          Opens a real WebRTC call, in the LiveKit ROOM this phone's token was minted for
+          (EXPO_PUBLIC_LIVEKIT_URL/TOKEN) — a different id from the gateway SESSION above, if you
+          joined one. Bring a second participant in from a browser or another phone, then watch
+          both meters move.
         </Text>
         {error ? <Text style={{ color: C.danger }}>{error}</Text> : null}
         <Pressable style={styles.primary} onPress={() => setJoined(true)}>

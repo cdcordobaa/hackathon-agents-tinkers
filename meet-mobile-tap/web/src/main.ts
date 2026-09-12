@@ -6,9 +6,16 @@
  *   gateway/session-client.ts -> drive the gateway session to `running`
  *   gateway/transcript-poster.ts -> batch-POST segments, with retry/backoff
  *   script-pane.ts           -> the caller's script, read verbatim
+ *   lib/qr-render.ts         -> render the session id as an offline QR code
  *
  * This file only does DOM plumbing — every piece of actual logic lives in
  * the module that owns it, listed above.
+ *
+ * The browser is the only party that ever sees a gateway-minted session id
+ * (see gateway/session-client.ts) — the phone has no session until it joins
+ * this one by id. The "Session" panel exists to get that id off this screen
+ * and onto the phone in seconds: displayed large, one-tap copy, and a QR
+ * code to scan instead of typing a UUID under time pressure.
  */
 import { ConnectionState } from "livekit-client";
 import { loadConfig, saveConfig, type AppConfig } from "./config.ts";
@@ -17,6 +24,7 @@ import { startParticipantPipeline, type ParticipantPipelineHandle } from "./part
 import { openGatewaySession, type SessionHandle } from "./gateway/session-client.ts";
 import { TranscriptPoster, type PostStats } from "./gateway/transcript-poster.ts";
 import { renderScriptPane } from "./script-pane.ts";
+import { renderQrCode, clearQrCode } from "./lib/qr-render.ts";
 import type { SessionState } from "../../shared/src/index.ts";
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -45,6 +53,12 @@ const els = {
   statFailed: $<HTMLSpanElement>("stat-failed"),
   statPending: $<HTMLSpanElement>("stat-pending"),
   statError: $<HTMLParagraphElement>("stat-error"),
+  sessionEmpty: $<HTMLParagraphElement>("session-empty"),
+  sessionDetails: $<HTMLDivElement>("session-details"),
+  sessionIdValue: $<HTMLDivElement>("session-id-value"),
+  copySessionIdBtn: $<HTMLButtonElement>("copy-session-id-btn"),
+  copyFeedback: $<HTMLSpanElement>("copy-feedback"),
+  sessionQr: $<HTMLDivElement>("session-qr"),
 };
 
 renderScriptPane(els.scriptPane);
@@ -196,6 +210,60 @@ const SESSION_TONE: Record<SessionState, "idle" | "good" | "warn" | "bad"> = {
   ended: "idle",
 };
 
+// ---- session id: the thing that gets read across a room -----------------
+//
+// The browser is the only side that ever sees `POST /session`'s response
+// (see gateway/session-client.ts's header), so this is the one and only
+// place a human can get the gateway session id onto the phone: read it
+// aloud, type it in, or scan the QR code. Get this wrong and a live test
+// silently watches two different sessions — see this file's own header.
+
+let copyFeedbackTimer: ReturnType<typeof setTimeout> | undefined;
+
+function showSessionId(id: string): void {
+  els.sessionEmpty.hidden = true;
+  els.sessionDetails.hidden = false;
+  els.sessionIdValue.textContent = id;
+  renderQrCode(els.sessionQr, id);
+}
+
+function clearSessionId(): void {
+  els.sessionEmpty.hidden = false;
+  els.sessionDetails.hidden = true;
+  els.sessionIdValue.textContent = "";
+  clearQrCode(els.sessionQr);
+  els.copyFeedback.hidden = true;
+}
+
+async function copySessionId(): Promise<void> {
+  const id = els.sessionIdValue.textContent;
+  if (!id) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(id);
+    } else {
+      // Fallback for a non-secure context or a browser missing the async
+      // Clipboard API — still needs to work under demo-day pressure.
+      const scratch = document.createElement("textarea");
+      scratch.value = id;
+      scratch.style.position = "fixed";
+      scratch.style.opacity = "0";
+      document.body.appendChild(scratch);
+      scratch.select();
+      document.execCommand("copy");
+      scratch.remove();
+    }
+  } catch (cause) {
+    showError(els.setupError, `Copy failed — read the id manually: ${cause instanceof Error ? cause.message : String(cause)}`);
+    return;
+  }
+  els.copyFeedback.hidden = false;
+  if (copyFeedbackTimer) clearTimeout(copyFeedbackTimer);
+  copyFeedbackTimer = setTimeout(() => {
+    els.copyFeedback.hidden = true;
+  }, 1500);
+}
+
 // ---- connect / disconnect -------------------------------------------------
 
 let roomHandle: RoomHandle | undefined;
@@ -262,6 +330,7 @@ async function join(): Promise<void> {
     });
     sessionClockStart = performance.now();
     poster = new TranscriptPoster(config.gatewayUrl, sessionHandle.id, sessionHandle.token, renderStats);
+    showSessionId(sessionHandle.id);
   } catch (cause) {
     showError(
       els.setupError,
@@ -308,6 +377,7 @@ async function leave(): Promise<void> {
   poster = undefined;
   setBadge(els.roomState, "room: idle", "idle");
   setBadge(els.sessionState, "session: idle", "idle");
+  clearSessionId();
   els.joinBtn.disabled = false;
   els.consentBtn.disabled = true;
 }
@@ -315,6 +385,7 @@ async function leave(): Promise<void> {
 els.joinBtn.addEventListener("click", () => void join());
 els.leaveBtn.addEventListener("click", () => void leave());
 els.consentBtn.addEventListener("click", () => sessionHandle?.grantConsent());
+els.copySessionIdBtn.addEventListener("click", () => void copySessionId());
 
 window.addEventListener("beforeunload", () => {
   // Best-effort teardown so a closed tab does not leave the gateway session

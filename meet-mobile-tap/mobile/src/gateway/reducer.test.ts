@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { SessionEvent } from "../../../shared/src";
-import { applyEvent, initialGatewayState } from "./reducer";
+import { applyEvent, hasPassedConsent, initialGatewayState } from "./reducer";
 
 function stateEvent(seq: number): SessionEvent {
   return { type: "session.state", sessionId: "s1", seq, atMs: seq * 100, state: "running", transport: "replay" };
@@ -109,6 +109,19 @@ test("a full backlog replay after reconnect does not duplicate already-seen turn
     ["hello", "hi", "new turn"],
   );
   assert.equal(state.backlogGap, false);
+});
+
+test("hasPassedConsent is true only for running/ending — never idle, awaiting-consent, or ended", () => {
+  // "ended" is deliberately excluded: it is reached both by a completed call
+  // AND by a declined-and-never-granted one (server/src/session.ts's
+  // declineConsent goes awaiting-consent -> ended directly), so it alone
+  // cannot say whether consent was ever granted. A joined session already
+  // "ended" is routed to the summary screen (App.tsx), never asked this.
+  assert.equal(hasPassedConsent("idle"), false);
+  assert.equal(hasPassedConsent("awaiting-consent"), false);
+  assert.equal(hasPassedConsent("running"), true);
+  assert.equal(hasPassedConsent("ending"), true);
+  assert.equal(hasPassedConsent("ended"), false);
 });
 
 test("an unrecognised future event type is ignored but still advances lastSeq", () => {

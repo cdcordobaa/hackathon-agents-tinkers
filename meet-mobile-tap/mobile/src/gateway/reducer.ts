@@ -94,6 +94,24 @@ export function setSessionId(state: GatewayState, sessionId: string): GatewaySta
 }
 
 /**
+ * True once a session has passed the consent gate. The state machine
+ * (server/src/session.ts's `TRANSITIONS` table) has no path to "running",
+ * "ending" or "ended" that does not go through "awaiting-consent" ->
+ * "running" first — `declineConsent` goes straight to "ended" instead, so
+ * "ended" alone is ambiguous (declined OR completed) and is deliberately
+ * NOT included here: a joined session already "ended" gets routed to the
+ * summary screen by App.tsx, never straight to the call screen, so this
+ * function is never asked about it.
+ *
+ * Used to route a `join`ed session straight to the call screen instead of a
+ * consent screen it does not need, and to know when to say so rather than
+ * silently behaving as if consent had never come up.
+ */
+export function hasPassedConsent(sessionState: SessionState): boolean {
+  return sessionState === "running" || sessionState === "ending";
+}
+
+/**
  * Folds one SessionEvent into state. Every event is a discriminated union on
  * `type`, so an event type this client does not recognise yet falls through
  * the switch untouched — shared/'s own contract for that ("the client

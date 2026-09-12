@@ -7,7 +7,8 @@
     "dev": "node --env-file-if-exists=../agent/.env --env-file-if-exists=.env --import tsx src/main.ts",
     "test": "node --import tsx --test src/*.test.ts",
     "typecheck": "tsc --noEmit",
-    "verify-ingest": "node --import tsx scripts/prove-segment-ingest.ts"
+    "verify-ingest": "node --import tsx scripts/prove-segment-ingest.ts",
+    "verify-join": "node --import tsx scripts/prove-join-fix.ts"
   },
   "dependencies": {
     "ws": "^8.18.0"

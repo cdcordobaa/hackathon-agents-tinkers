@@ -29,10 +29,18 @@ export function CallScreen({
   transport,
   state,
   onEndCall,
+  consentRecordedElsewhere = false,
 }: {
   transport: TranscriptSourceKind;
   state: GatewayState;
   onEndCall: () => void;
+  /** True only when this phone joined a session that had already passed the
+   *  consent gate before it got here — never true for a session this phone
+   *  itself granted consent on. Rendered as a visible line, not a silent
+   *  skip: per the consent gate's own requirement, "the session was
+   *  consented to" and "consent was never asked" must never look the same
+   *  from this screen. */
+  consentRecordedElsewhere?: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("transcript");
   const analysing = state.sessionState === "running" || state.sessionState === "ending";
@@ -45,6 +53,13 @@ export function CallScreen({
           <Text style={[styles.eyebrow, { color: C.danger }]}>End</Text>
         </Pressable>
       </View>
+
+      {consentRecordedElsewhere ? (
+        <Text style={styles.small}>
+          Consent for this session was already granted before this phone joined — recorded, not
+          skipped.
+        </Text>
+      ) : null}
 
       <DegradedBanners connection={state.connection} backlogGap={state.backlogGap} degraded={state.degraded} />
 
