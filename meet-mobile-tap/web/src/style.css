@@ -144,9 +144,81 @@ button.secondary { background: transparent; border: 1px solid var(--border); col
   transition: width 80ms linear;
 }
 
-.stats { display: flex; gap: 20px; }
+.stats { display: flex; gap: 20px; flex-wrap: wrap; }
 .stat-label { display: block; color: var(--dim); font-size: 11px; text-transform: uppercase; }
 .stat-value { display: block; font-size: 20px; font-weight: 700; }
+
+/* ---- session panel: the id gets read across a room, so it goes big ---- */
+
+.session-panel { border-color: var(--accent); }
+
+.session-id-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.session-id-value {
+  font-size: clamp(22px, 5vw, 38px);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  word-break: break-all;
+  color: var(--accent);
+  line-height: 1.15;
+}
+
+.session-id-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.copy-feedback {
+  color: var(--good);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.session-body {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.session-qr {
+  width: 160px;
+  height: 160px;
+  flex: 0 0 auto;
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px;
+  border: 1px solid var(--border);
+}
+.session-qr svg { display: block; width: 100%; height: 100%; }
+
+.session-status-col {
+  flex: 1 1 240px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.session-status-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hint {
+  color: var(--dim);
+  font-size: 12px;
+  margin: 0;
+}
 
 .transcript-panel, .script-panel { flex: 1; min-height: 320px; }
 .transcript, .script {

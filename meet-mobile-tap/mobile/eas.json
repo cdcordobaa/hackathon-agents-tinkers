@@ -1,4 +1,19 @@
 {
+  "//": [
+    "Expo Go will NOT run this app. @livekit/react-native and react-native-webrtc",
+    "are native modules, so every profile here produces a real native build.",
+    "",
+    "EXPO_PUBLIC_ vars are baked in at BUILD time. EXPO_PUBLIC_GATEWAY_URL is baked",
+    "so a standalone build has a gateway to reach on first launch; it stays editable",
+    "on the join screen, so a build still works against another laptop on another",
+    "wifi. Update it here when the demo machine's LAN address changes.",
+    "",
+    "  preview      Android APK, JS bundled, no Metro. The demo build — hand the",
+    "               download link to anyone and they install it.",
+    "  simulator    iOS Simulator .app. Free: no Apple Developer account needed.",
+    "  device       Physical iPhone. Needs a paid Apple Developer account.",
+    "  development  Dev client that connects to your Metro over the LAN."
+  ],
   "cli": {
     "version": ">= 24.0.0",
     "appVersionSource": "remote"
@@ -19,6 +34,21 @@
       "android": {
         "buildType": "apk"
       },
+      "env": {
+        "EXPO_PUBLIC_GATEWAY_URL": "http://10.16.8.212:8787"
+      }
+    },
+    "simulator": {
+      "distribution": "internal",
+      "ios": {
+        "simulator": true
+      },
+      "env": {
+        "EXPO_PUBLIC_GATEWAY_URL": "http://10.16.8.212:8787"
+      }
+    },
+    "device": {
+      "distribution": "internal",
       "env": {
         "EXPO_PUBLIC_GATEWAY_URL": "http://10.16.8.212:8787"
       }

@@ -8,13 +8,17 @@
  * `awaiting-consent` are silently discarded — not a bug to work around here,
  * the thing the state machine is for.
  *
- * `token` on the returned handle is forward-looking: today's `POST /session`
- * response carries none (see server/src/gateway.ts), so it comes back
- * `undefined` and no `Authorization` header is sent. Once the gateway mints a
- * session credential (openspec/changes/add-browser-livekit-rung/design.md,
- * "Open Questions" — the ingest route this app posts to needs one), reading
- * it here and forwarding it in ../gateway/transcript-poster.ts is the only
- * change required on this side.
+ * `token` on the returned handle is the ingest credential `POST /session` now mints
+ * and returns unconditionally (see server/src/gateway.ts's own header) — read here and
+ * forwarded as `Authorization: Bearer` in ../gateway/transcript-poster.ts. It stays
+ * typed `string | undefined` defensively (a future gateway build that omits it should
+ * degrade to "no header sent", per that file's own fallback, not throw here) but in
+ * today's gateway it is always present.
+ *
+ * This app is also the only party that ever sees this response — the phone
+ * (`mobile/`) never calls `POST /session` for this same call, it joins the session id
+ * this app creates (see main.ts's Session panel: that id, large, copyable, and as a
+ * QR code, is how it gets from this tab onto the phone).
  */
 import type { ClientMessage, SessionEvent, SessionState, TranscriptSourceKind } from "../../../shared/src/index.ts";
 

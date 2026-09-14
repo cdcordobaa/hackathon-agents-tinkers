@@ -154,4 +154,16 @@ export const styles = StyleSheet.create({
   segmentItemActive: { backgroundColor: C.surfaceRaised },
   segmentLabel: { color: C.muted, fontSize: 13, fontWeight: "600" },
   segmentLabelActive: { color: C.text },
+
+  input: {
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    color: C.text,
+    backgroundColor: C.surface,
+    fontSize: 15,
+    fontFamily: "Menlo",
+  },
 });

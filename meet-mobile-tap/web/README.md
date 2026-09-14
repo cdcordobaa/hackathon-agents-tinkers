@@ -30,8 +30,20 @@ those are owned by other workflows and this app only ever *reads* their code
         lib/transcription-session.ts  ported from the starter kit (MIT, attribution kept)
         lib/track-tap.ts           adapted from the starter kit's stereo-capture.ts
         lib/realtime-config.ts     adapted from the starter kit (VITE_ instead of NEXT_PUBLIC_)
+        lib/qrcodegen.ts           vendored QR encoder (MIT, Project Nayuki — attribution kept)
+        lib/qr-render.ts           renders a session id to an inline SVG QR code, offline
       scripts/mint-token.mjs       LiveKit token minting, same shape as mobile/scripts/
       token-server/server.mjs      stand-in for a gateway-minted OpenAI ephemeral secret
+
+## This browser tab creates the session; the phone joins it by id
+
+The gateway's ingest credential (`token` on `POST /session`'s response) is only ever
+handed to whichever caller made that POST — so **this app must be the one that creates
+the gateway session**, and the phone (`mobile/`) joins the id this screen shows rather
+than creating a second, disconnected one. Before this app existed both sides called
+`POST /session` independently and ended up watching two different sessions, with the
+phone showing nothing — see the "Session" panel below for how that id gets from this
+screen onto the phone.
 
 ## How to run
 
@@ -65,10 +77,11 @@ npm run token-server
 
 **3. The gateway** (see `../server/README.md` if present, or just `cd ../server && npm
 install && npm run dev` — needs a model key in `server/.env` or `agent/.env`, per that
-package). **As of this writing the gateway has no `livekit` transport and no segment
-ingest route** — see "What the next agent needs to build" below. The app still runs
-without it; it just cannot get the session past `POST /session`, which shows up as a
-clear error in the Connect panel, not a silent failure.
+package). `server/src/gateway.ts` implements `POST /session` (mints the id and the
+ingest token this app needs), `POST /session/:id/segments`, and `WS /session/:id` — see
+"The gateway endpoint this app POSTs to" below for the exact contract this app relies
+on. If a future gateway build regresses one of these, that shows up as a clear error in
+the Connect panel or in the Session panel's stats, not a silent failure.
 
 **4. The app:**
 
@@ -80,18 +93,61 @@ Open the printed URL. The Connect panel is pre-filled from `.env` (via
 `import.meta.env`); every field is also a plain text input, editable and saved to
 `localStorage`, so a token or URL can be pasted live at demo time without a rebuild.
 
-## Two participants in a room, for a demo
+## The Session panel — how the phone finds the browser's session
 
-Any of these work — "two clients in a LiveKit room" is the whole requirement:
+Right below the Connect panel, once "Join room" succeeds, a **Session** panel appears
+showing:
 
-- Two browser tabs, each with a token minted for the same `--room` and different
-  `--identity`. One person plays "You" (reads nothing — they're the mark), the other
-  plays "Caller" and reads the **Script pane** on screen.
-- This tab plus the phone (`mobile/`), same room name, each with its own token.
+- **The gateway session id, large.** Sized to be readable across a room or typed into a
+  phone under time pressure, with a **Copy ID** button next to it (one tap, falls back
+  to a manual copy if the Clipboard API is unavailable).
+- **A QR code** encoding the same id — scan instead of typing a UUID. Generated entirely
+  offline (`src/lib/qrcodegen.ts`, vendored, no CDN, no network call), so it renders even
+  with the LAN down.
+- **The live session state** (`idle` / `awaiting-consent` / `running` / `ending` /
+  `ended`), read straight off the gateway WebSocket — not assumed from this tab's own
+  actions.
+- **The segment-ingest counters** (`posted` / `failed attempts` / `pending`) that were
+  already being tracked, now next to the id and state instead of off in a side panel.
 
-Either way, whoever plays the caller should read straight from the Script pane — it is
-the exact `agent/src/fixtures/bank-scam.ts` pretext the eval fixtures use, so the demo
-lands at a known moment (the OTP ask, at the very end) instead of improvising.
+That combination is the point: if the phone shows nothing, this panel says whether that
+is because the session never reached `running` (consent not yet granted — see below) or
+because segments are actually failing to post, rather than leaving "transcription is
+broken" as the only visible explanation.
+
+## Demo sequence — two people, two devices
+
+This is the order of operations for a live run, browser-creates / phone-joins:
+
+1. **Operator (laptop):** start the token-server and the gateway (steps 2–3 above), then
+   `npm run dev` and open the app. Fill in the Connect panel (LiveKit URL/token/room,
+   gateway URL) and click **Join room**. The Session panel appears with the id, its QR
+   code, and `session: idle`.
+2. **Operator:** hand the phone the id — either read the big id text aloud, tap **Copy
+   ID** and send it (Slack/AirDrop/whatever's fastest), or hold the QR code up for the
+   phone's camera.
+3. **Phone (`mobile/`):** enter or scan that same session id to join the *existing*
+   gateway session — **not** a new one. (Separately, and with a *different* identifier,
+   the phone also joins the LiveKit **room** by name/token, per `mobile/`'s own setup —
+   see the note in this repo's top-level task about not conflating the two ids.)
+4. **Operator:** the session state badge moves to `awaiting-consent`. Say the consent
+   line out loud (11 US states require all-party consent — see the repo's `CLAUDE.md`),
+   then click **Grant consent** in the browser. State moves to `running` — this is the
+   operator's own signal that the phone's view should now start filling in.
+5. **Either person plays "Caller"** and reads the **Script pane** on screen (the exact
+   `agent/src/fixtures/bank-scam.ts` pretext the eval fixtures use), the other plays
+   "You" and says nothing scripted. The demo lands at a known moment (the OTP ask, at the
+   very end) instead of improvising.
+6. **Operator:** watch the Session panel's `posted` counter climb as speech happens, and
+   watch a participant's level meter move — per this project's house rule, silence looks
+   exactly like success, so a still counter or a flat meter is the thing to check first,
+   not the phone screen.
+7. **Operator:** click **Leave** when done — this ends the gateway session so the phone
+   is not left listening to a session that will never move again.
+
+Any of the following also work for "two clients in a LiveKit room" if a phone is not
+available for a rehearsal: two browser tabs, each with a token minted for the same
+`--room` and a different `--identity`.
 
 ## Env vars
 
@@ -150,61 +206,48 @@ local participant" and "everyone else" in a two/three-person demo room.)
 Whitespace-only finals are discarded before POSTing (matches the rule
 `add-live-transcription` applies to every other transport).
 
-## The gateway endpoint this app POSTs to — precise, for whoever implements it
+## The gateway endpoint this app POSTs to
 
 ```
 POST {gatewayUrl}/session/{sessionId}/segments
-Authorization: Bearer {sessionToken}     (sent only if present — see below)
+Authorization: Bearer {sessionToken}
 Content-Type: application/json
 
 { "segments": TranscriptSegment[] }
 
--> 202 { "accepted": <number> }
+-> 202 { "accepted": <number> } | 400 | 401 | 403 | 409 | 429
 ```
 
-This is **not implemented server-side today** — `server/src/gateway.ts` currently has
-only `POST /session` and `WS /session/:id`. This app is built exactly to the contract
-`openspec/changes/add-browser-livekit-rung/specs/browser-call-rung/spec.md` already
-specs, so implementing it should need no renegotiation:
+**Implemented server-side** (`server/src/gateway.ts`, `server/src/browser-source.ts`) —
+`POST /session` mints and returns the ingest `token` unconditionally on every create call
+(see that file's own header), and this app sends it on every `/segments` POST
+(`src/gateway/transcript-poster.ts`). Session-bound authorization is enforced in the
+order the spec requires: no `Authorization` header -> refused before the session id is
+even looked up; a credential that does not authorize `sessionId` -> refused, nothing
+written; a valid credential -> accepted. Dedup is by `providerEventKey`, ordering is by
+`sequence` — both per shared/src/transcript-source.ts, not renegotiated here.
 
-1. **A `BrowserTranscriptSource` (`kind: 'livekit'`)** implementing
-   `shared/src/transcript-source.ts`'s `TranscriptSource` interface — same shape every
-   other source (`server/src/replay-source.ts` is the reference implementation) already
-   satisfies. Its `onSegment`/`onSpeaker`/`onEnded` are driven by whatever this route
-   receives, not by a timer.
-2. **The route itself**, wired into `server/src/gateway.ts` next to the existing
-   `SESSION_PATH` regex, forwarding each segment in the POST body into that session's
-   `BrowserTranscriptSource`.
-3. **Session-bound authorization — the one genuinely new trust boundary this path
-   introduces** (every other `TranscriptSource` either runs in-process or is a
-   provider-signed webhook; this is the first one fed by code the gateway does not
-   control). The spec requires, in order:
-   - No `Authorization` header at all -> refuse before ever looking up the session id.
-   - A credential that does not authorize `sessionId` -> refuse, write nothing, and say
-     so in the response (not a silent 200).
-   - A valid credential for `sessionId` -> accept.
-
-   **This app already sends `Authorization: Bearer {token}` whenever
-   `POST /session`'s response includes a `token` field** (see
-   `src/gateway/session-client.ts`) — today's response has no such field, so today this
-   header is simply absent and every POST would need to be refused per the rule above
-   (missing credential). The one thing the gateway side needs to add to make this real:
-   have `POST /session` mint and return that credential. No change needed on this side
-   once it does.
-4. **The OpenAI Realtime ephemeral-secret route** the design doc leaves open
-   (`POST /session/:id/realtime-secret` or equivalent). Until it exists, this app's own
-   `token-server/server.mjs` stands in — see that file's header for the one-line swap
-   once the gateway grows it.
+Still standing open on the gateway side, unrelated to this app's own task: **the OpenAI
+Realtime ephemeral-secret route** the design doc leaves open (`POST
+/session/:id/realtime-secret` or equivalent). Until it exists, this app's own
+`token-server/server.mjs` stands in — see that file's header for the one-line swap once
+the gateway grows it.
 
 ## What is verified and what is not
 
 **Verified in this session:**
 - `npx tsc --noEmit` passes.
-- `npm run build` passes (`vite build`, single ~575 kB chunk).
+- `npm run build` passes (`vite build`, single ~589 kB chunk).
 - `npm run dev` serves the app; cross-repo imports (`shared/src/*.ts` as types,
   `agent/src/fixtures/bank-scam.ts` as data) resolve correctly through Vite, both as dev
   requests (`/@fs/...`) and in the production bundle.
 - The built bundle contains no `OPENAI_API_KEY` and no `sk-`-prefixed string.
+- `npm run preview` serves the built page and the Session panel's markup
+  (`session-id-value`, `session-qr`, the Copy ID button) is present in the response.
+- `qrcodegen.ts`'s vendored encoder was exercised directly (bundled standalone with
+  esbuild, run under `node`, no browser): `QrCode.encodeText()` on a 36-character UUID at
+  `Ecc.MEDIUM` returns a 29×29 module grid with a plausible dark/light module ratio — the
+  encoder itself runs and produces QR-shaped output.
 
 **NOT verified — could not be, from here, and nobody should assume otherwise because
 nothing threw while writing this:**
@@ -221,10 +264,20 @@ nothing threw while writing this:**
 - **No audio has ever gone through `track-tap.ts`'s AudioWorklet against a real
   `MediaStreamTrack`.** The worklet logic is a direct adaptation of `stereo-capture.ts`'s
   proven mono path; it has not been run.
-- **The gateway ingest route does not exist**, so no segment has ever actually reached a
-  `Session` or `RollingTranscript` from this app. Everything past `TranscriptPoster`'s
-  `fetch()` call is this document's description of the target contract, not an observed
-  round trip.
+- **No segment POSTed by this app has ever actually reached a running gateway `Session`
+  in this session's testing.** The gateway ingest route exists (confirmed by reading
+  `server/src/gateway.ts` and `browser-source.ts`) and the two sides agree on the
+  contract, but no end-to-end POST from this app against a live gateway has been run
+  here.
+- **No phone has ever scanned the QR code or joined a session by the id this screen
+  shows.** The QR encodes exactly the same string as the text next to it (same
+  `showSessionId()` call site — see `main.ts`), but a real camera scan, and a real
+  `mobile/`-side "join by id" flow, are both outside this app's boundary and unverified
+  from here. `mobile/` is being changed concurrently, by a different agent, to add that
+  join — check its own status before assuming it exists.
+- **Copy-to-clipboard has not been exercised in a real browser.** `navigator.clipboard
+  .writeText` with a `document.execCommand("copy")` fallback compiles and is the standard
+  pattern, but has not been clicked.
 - **`atMs` is an approximation**, not a synchronized clock — see the field's own comment
   in `participant-pipeline.ts` and the shape table above. `sequence` is exact and is what
   the gateway actually orders by; `atMs` is cosmetic (clock display) until proven

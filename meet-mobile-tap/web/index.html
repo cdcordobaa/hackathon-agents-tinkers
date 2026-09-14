@@ -12,7 +12,6 @@
         <h1>Xentinela <span class="dim">— browser rung</span></h1>
         <div class="badges">
           <span id="room-state" class="badge badge-idle">room: idle</span>
-          <span id="session-state" class="badge badge-idle">session: idle</span>
         </div>
       </header>
 
@@ -46,21 +45,41 @@
         <p id="setup-error" class="error" hidden></p>
       </section>
 
+      <section id="session-panel" class="panel session-panel">
+        <h2>Session <span class="dim">— get this onto the phone</span></h2>
+        <p id="session-empty" class="dim">No session yet — click "Join room" to create one.</p>
+        <div id="session-details" hidden>
+          <div class="session-id-row">
+            <div class="session-id-value" id="session-id-value" aria-live="polite"></div>
+            <div class="session-id-actions">
+              <button id="copy-session-id-btn" class="secondary" type="button">Copy ID</button>
+              <span id="copy-feedback" class="copy-feedback" hidden>Copied!</span>
+            </div>
+          </div>
+          <div class="session-body">
+            <div id="session-qr" class="session-qr" aria-label="Session ID QR code"></div>
+            <div class="session-status-col">
+              <div class="session-status-row">
+                <span class="stat-label">gateway session state</span>
+                <span id="session-state" class="badge badge-idle">session: idle</span>
+              </div>
+              <div id="ingest-stats" class="stats">
+                <div><span class="stat-label">segments posted</span><span id="stat-posted" class="stat-value">0</span></div>
+                <div><span class="stat-label">failed attempts</span><span id="stat-failed" class="stat-value">0</span></div>
+                <div><span class="stat-label">pending</span><span id="stat-pending" class="stat-value">0</span></div>
+              </div>
+              <p class="hint">Phone shows nothing until state reaches <strong>running</strong> (consent granted) — check here before assuming transcription is broken.</p>
+              <p id="stat-error" class="error" hidden></p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section class="columns">
         <div class="col">
           <div class="panel">
             <h2>Participants</h2>
             <div id="participants"></div>
-          </div>
-
-          <div class="panel">
-            <h2>Segments reaching the gateway</h2>
-            <div id="ingest-stats" class="stats">
-              <div><span class="stat-label">posted</span><span id="stat-posted" class="stat-value">0</span></div>
-              <div><span class="stat-label">failed attempts</span><span id="stat-failed" class="stat-value">0</span></div>
-              <div><span class="stat-label">pending</span><span id="stat-pending" class="stat-value">0</span></div>
-            </div>
-            <p id="stat-error" class="error" hidden></p>
           </div>
         </div>
 
