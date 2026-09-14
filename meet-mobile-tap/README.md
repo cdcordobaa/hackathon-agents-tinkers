@@ -1,11 +1,43 @@
-# SecureGuIA — browser and mobile calls
+# SecureGuIA
 
-Two people join the same LiveKit room from a browser or the Expo app. A server-side
-participant receives their consented audio, transcribes it with Gemini, and publishes
-progressive risk assessments. The call screen shows **Call in progress**, elapsed time,
-people, audio activity, transcript, evidence, and guidance.
+**A live call guard.** Two people are on a call. One of them is being socially engineered.
+SecureGuIA listens with consent, follows the conversation as it develops, and tells the
+person being targeted what is happening — while they are still on the line.
 
-## Show the mid-call screen immediately
+Built at [**Agents, Everywhere**](https://bogota.aitinkerers.org/hackathons/h_q4-sNJw_JYI),
+the AI Tinkerers global hackathon, Bogotá chapter · 12–13 September 2026.
+
+![SecureGuIA setup screen](docs/images/setup.png)
+
+---
+
+## The problem
+
+Scam calls do not announce themselves. They *develop*. A bank-impersonation call opens
+politely, establishes authority, invents a frightening transaction, manufactures urgency,
+isolates you from anyone who might talk you out of it — and only then asks for the one-time
+code. Each step is individually plausible. The shape is only obvious in hindsight.
+
+A summary after the call is useless. The money is gone.
+
+So SecureGuIA re-reads the whole transcript every few seconds and revises its assessment as
+the pretext builds. The score climbs with the call.
+
+> ```
+> authority claim  →  urgency  →  isolation  →  the OTP ask
+>    ELEVATED 60   →     ↓      →      ↓      →    HIGH 95
+> ```
+
+![Live assessment during a call](docs/images/call-desktop.png)
+
+Evidence is quoted verbatim from the transcript, in the language spoken. A finding you
+cannot check against the words said is not a finding.
+
+---
+
+## See it in 30 seconds
+
+No credentials, no microphone, no model calls, no phone:
 
 ```bash
 cd meet-mobile-tap
@@ -13,150 +45,255 @@ npm run setup:gateway
 npm run dev
 ```
 
-Open <http://localhost:8787> and choose **Open demo preview**. It opens an evolving
-sample already two minutes into a call. The persistent **Demo preview — no live call**
-banner identifies simulated audio levels, transcript, and assessments. No credentials,
-microphone, or model calls are needed for this route.
+Open <http://localhost:8787> → **Open demo preview**. It drops you two minutes into an
+evolving call.
 
-## Make a real call
+The persistent amber **Demo preview — no live call** banner is deliberate: simulated data
+must never be able to pass for a real model result. Every screenshot in this README is that
+preview, captured from the running app.
 
-Copy `agent/.env.example` to `agent/.env` and fill in:
+---
 
-| Setting | Where to obtain it | Purpose |
-| --- | --- | --- |
-| `LIVEKIT_URL` | [LiveKit Cloud](https://cloud.livekit.io), project settings | Room server URL (`wss://…`) |
-| `LIVEKIT_API_KEY` | Project → Settings → API keys | Server authentication |
-| `LIVEKIT_API_SECRET` | Same API key entry | Signs short-lived room tokens |
-| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | Audio transcription and default risk analysis |
-| `OPENAI_API_KEY` | Optional existing OpenAI project key | Alternative risk analysis; Gemini is still needed for transcription |
+## On the phone
 
-Restart `npm run dev` after configuring keys. The service indicators report whether
-keys are configured; connection and provider failures appear separately during the call.
-Without model keys, audio calls still work and monitoring reports that analysis is unavailable.
+The same call, same assessment, on the device of the person being protected.
 
-1. Open the browser companion on the computer at <http://localhost:8787>.
-2. Choose a room (for example `demo`), name, and role, confirm consent, then join.
-3. On the phone, choose **LiveKit**, enter the gateway's printed LAN URL and the same
-   room name, then continue and consent. A second browser participant can also join.
-4. Use headphones. Check that both people can hear one another and the audio meters move.
-5. Speak for at least 12 seconds. Transcription uses 12-second audio chunks; risk updates
-   follow completed transcription and the model interval, so this is not word-by-word captioning.
+<img src="docs/images/call-phone.png" width="340" alt="SecureGuIA on a phone during a call">
 
-Use localhost or HTTPS for browser microphone access. A plain HTTP LAN URL can reach
-the gateway from the native app, but browsers generally require a secure context for microphones.
-Each join gets a 30-minute room-scoped token; provider secrets never enter the app bundle.
+React Native via Expo, with a native development build — LiveKit needs real WebRTC, so
+Expo Go cannot run it.
 
-### Local LiveKit, without a Cloud account
+---
 
-[LiveKit supports local development](https://docs.livekit.io/transport/self-hosting/local/)
-with a public development key pair. On macOS:
+## How it works
+
+Everyone — both humans and the monitor — is a participant in one LiveKit room. The monitor
+is simply a server-side participant that never speaks.
+
+```mermaid
+flowchart TB
+    B["🖥️ Browser<br/>agent/web/"] <--> R
+    P["📱 Expo app<br/>mobile/"] <--> R
+    R(("LiveKit room<br/>WebRTC"))
+    R -->|"per-participant<br/>AudioStream @ 16kHz"| M
+
+    subgraph M ["SecureGuIA monitor · agent/src/livekit-monitor.ts"]
+        direction TB
+        C["AudioChunker<br/><i>12s chunks, silence-gated</i>"]
+        T["Gemini transcription<br/><i>one request per speaker</i>"]
+        RT["RollingTranscript<br/><i>finals only, bounded</i>"]
+        A["ProgressiveAnalyzer<br/><i>revises previous assessment</i>"]
+        C --> T --> RT --> A
+    end
+
+    A -->|"CallSnapshot<br/>topic: secureguia.session"| R
+    R -.->|"validated + freshness-checked"| B
+    R -.->|"validated + freshness-checked"| P
+```
+
+**Why a room participant and not a phone tap.** The one rule this whole project reduces to:
+
+> React Native can capture any call your app is a party to. It can never capture a call
+> another app owns.
+
+Tapping Zoom, Meet, or the native dialer from a third-party app is blocked at the OS level on
+both platforms — Android's `AudioPlaybackCapture` refuses `USAGE_VOICE_COMMUNICATION`, and
+iOS blocks cross-app VoIP audio in the routing layer. Worse, Android's concurrent-capture
+policy does not *fail* when you try; it hands you silence, so the recorder reports success and
+returns zeros. Being a participant sidesteps all of it. The research trail is in
+[`CLAUDE.md`](CLAUDE.md).
+
+**Speaker labels are free.** Each participant is a separate audio track, so the transcript
+knows who spoke without any diarization.
+
+### The snapshot contract
+
+One validated shape, [`shared/session.ts`](shared/session.ts), rendered by both clients. The
+monitor publishes; the clients only ever read. Receipt rules live in
+[`shared/room-session.ts`](shared/room-session.ts) and are shared so the browser and the phone
+cannot drift:
+
+- the publisher identity must be the monitor — any participant can send data on a room
+- room and sequence number must match, so a stale or replayed packet is dropped
+- **older than 15s is stale**, and a stale snapshot *removes* the score and the guidance
+
+That last rule matters more than it looks. A risk score frozen on screen while the pipeline is
+dead is worse than no score, because the person trusts it. Degraded states say so.
+
+---
+
+## Three ways to put a call in front of the model
+
+Each rung is a complete demo. Rehearse from the bottom up.
+
+| Rung | What the call is | Needs | Status |
+|---|---|---|---|
+| **`replay`** | Scripted call through the real pipeline | One model key | **Works** — `cd agent && npm run demo` |
+| **`livekit`** | Two WebRTC clients in a room — a real call | LiveKit + Gemini | **Works** — browser ↔ phone |
+| **`twilio`** | Real PSTN | A number, regulatory setup | Not built |
+
+`replay` exists because a demo that depends on a network, a device, and two model providers
+will fail on stage eventually. It runs the genuine `RollingTranscript` and
+`ProgressiveAnalyzer` against [`agent/src/fixtures/bank-scam.ts`](agent/src/fixtures/bank-scam.ts),
+a Colombian bank-impersonation pretext in Spanish. Only the audio is fake.
+
+---
+
+## Decisions that took the longest to get right
+
+Most of these are one line of code and a day of finding out.
+
+**Analyse progressively, not repeatedly.** "Concatenate every few seconds and send it" is the
+right instinct and breaks three ways on a real call, so [`analyzer.ts`](agent/src/analyzer.ts)
+skips a pass when no new speech arrived; *drops* a tick that lands while a pass is still
+running rather than queueing it, because a queue on a fixed interval only ever grows; and
+bounds the prompt by keeping the head **and** tail of the transcript — unbounded concatenation
+is fine for ten minutes and fatal for an hour. The opening pretext matters as much as the last
+sentence.
+
+**Carry the previous assessment into the next prompt.** This is what makes it *progressive*
+rather than recomputed. The model revises, and reports what `changed`.
+
+**Only finalised turns reach the transcript.** Streaming deltas get revised constantly, and
+analysing revised text makes the model argue with itself between passes.
+
+**Gate on silence before spending an API call.** Not an optimisation — a correctness fix.
+Transcription models hallucinate confident sentences from room tone; feed one twelve seconds
+of silence and it returns something plausible, which lands in the transcript as a turn nobody
+said and then gets reasoned about as evidence.
+[`audio-chunker.ts`](agent/src/audio-chunker.ts) measures voiced milliseconds and drops the
+chunk. The transcription prompt is a second line of defence.
+
+**Never show a reassuring zero.** Missing analysis stays pending with an em dash. A zero looks
+like "checked, you're fine."
+
+**The free tier shapes the architecture.** Gemini's free tier is single-digit requests per
+minute, which is low enough that the analysis interval is a per-provider value rather than a
+constant. Two speakers on 12s chunks is already 10 rpm before the analyzer asks for anything —
+which is the other reason silence-gating earns its place.
+
+---
+
+## What this deliberately does not do
+
+Stated plainly, because a demo that overstates itself is worse than a smaller honest one:
+
+- No Twilio/PSTN. No capture of calls owned by another app — see above; it is not possible.
+- No persisted transcripts. The phone's end screen reflects the last snapshot it received.
+- The gateway is a **trusted-local-network demo**. No application login. Do not expose it as a
+  public token service.
+- The OpenSpec event log in [`openspec/`](openspec/) is a proposed contract, not yet reconciled
+  with the shipped implementation.
+- Health checks say "Configured", never "Ready" — they verify that keys exist, not that any
+  provider will answer.
+
+---
+
+## Running a real call
+
+Copy `agent/.env.example` to `agent/.env`:
+
+| Setting | Where | Purpose |
+|---|---|---|
+| `LIVEKIT_URL` | [LiveKit Cloud](https://cloud.livekit.io) → project settings | Room server (`wss://…`) |
+| `LIVEKIT_API_KEY` | Project → Settings → API keys | Server auth |
+| `LIVEKIT_API_SECRET` | Same entry | Signs short-lived room tokens |
+| `GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/apikey) | Transcription + default analysis |
+| `OPENAI_API_KEY` | Optional | Alternative analysis; Gemini still does transcription |
+
+Then:
+
+1. Browser companion on the computer at <http://localhost:8787>. Pick a room, name, role,
+   confirm consent, join.
+2. On the phone: **LiveKit**, the gateway's printed LAN URL, the same room name, consent.
+3. **Use headphones.** Check both people hear each other and the meters move.
+4. Speak for at least 12 seconds — transcription works in 12s chunks, so this is not
+   word-by-word captioning.
+
+Browsers require localhost or HTTPS for microphone access. Each join gets a 30-minute
+room-scoped token; provider secrets never enter the app bundle. Credentials live in ignored
+`agent/.env` and are never committed.
+
+**Phone build:**
+
+```bash
+cd mobile
+npm ci && cp .env.example .env     # set EXPO_PUBLIC_GATEWAY_URL for a physical device
+npx expo run:android               # or run:ios
+```
+
+The native config permits cleartext HTTP for this trusted-network demo. Use HTTPS and remove
+the `plugins/with-demo-cleartext.js` registration before shipping anything real.
+
+<details>
+<summary><b>Local LiveKit, without a Cloud account</b></summary>
 
 ```bash
 brew install livekit
-cd meet-mobile-tap/agent
-npm run livekit:local
+cd agent && npm run livekit:local   # terminal 1
+cd agent && npm run dev:local       # terminal 2
 ```
 
-In a second terminal:
+`livekit-local.yaml` binds and advertises loopback for signaling and media, connecting
+browsers on this machine to a real room with `devkey`/`secret`. Still needs a Gemini key for
+real results. For a physical phone, change `bind_addresses` and `rtc.node_ip` to your LAN and
+point `LIVEKIT_URL` at the machine's LAN address.
+</details>
 
-```bash
-cd meet-mobile-tap/agent
-npm run dev:local
+---
+
+## Layout
+
 ```
-
-The supplied `livekit-local.yaml` binds and advertises loopback for both signaling and
-media. This connects browsers on this computer to a real room using `devkey` / `secret`.
-It still needs a Gemini key for real transcript and risk results. To use a physical phone
-with local LiveKit, change both `bind_addresses` and `rtc.node_ip` for your trusted LAN,
-then set `LIVEKIT_URL` to the computer's reachable LAN address instead of `127.0.0.1`.
-LiveKit Cloud avoids that local networking setup.
-
-## Phone setup
-
-See [Conectar el móvil a una llamada web](MOBILE_CALL.md) for the step-by-step Spanish guide.
-
-```bash
-cd meet-mobile-tap/mobile
-npm ci
-cp .env.example .env
-# Set EXPO_PUBLIC_GATEWAY_URL to the gateway's printed LAN URL for a physical phone.
-npx expo run:ios
-# Or: npx expo run:android
+agent/          the monitor and the gateway
+  src/livekit-monitor.ts   PCM capture → chunking → transcription → analysis → snapshots
+  src/analyzer.ts          the progressive loop
+  src/transcript.ts        rolling transcript, bounded render
+  src/audio-chunker.ts     12s chunks, silence gate, WAV encoding
+  src/risk-profile.ts      the schema and prompt — the one swappable file
+  src/demo-server.ts       join gateway, per-room monitor lifecycle
+  web/                     browser participant + simulated preview
+mobile/         Expo participant, in-call HUD, local summary
+server/         session-event API, replay and segment ingestion
+shared/         the snapshot contract both clients validate against
+openspec/       proposed contracts (not yet reconciled)
 ```
-
-LiveKit requires a native development build; Expo Go does not work. Rebuild after native
-configuration changes. The gateway URL is also editable on the join screen. The phone
-defaults to the person being protected; the browser defaults to the other caller.
-Both clients let you select the participant's role before joining.
-
-The native configuration permits HTTP for this trusted-network demo. Use HTTPS and remove
-the Android `plugins/with-demo-cleartext.js` plugin registration before shipping a production app.
-
-### One mobile flow and one gateway
-
-The app now uses the existing setup → consent → call → summary screens for both call
-paths. `EXPO_PUBLIC_CALL_EXPERIENCE` is no longer needed.
-
-| Call path | Audio and analysis | Connection |
-| --- | --- | --- |
-| LiveKit (default) | Browser and phone share room audio; one server monitor transcribes and assesses it | `/api/join` → LiveKit room snapshots |
-| Replay | Scripted transcript through the session analyzer; no microphone | `/session` → ordered WebSocket events |
-
-The single gateway on port **8787** serves the browser, join API, and session API.
-Both paths feed the same mobile risk, evidence, transcript, and summary components.
-LiveKit snapshots are authenticated by publisher identity, checked against the room and
-sequence, and considered stale after 15 seconds without a new update. Reconnecting,
-degraded, and stale states suppress current risk guidance; the summary keeps the highest
-assessment actually observed. Leaving on one device does not end the other person's call.
-
-Replay needs a configured analysis provider. The assistant tab is optional and requires
-`EXPO_PUBLIC_COPILOTKIT_RUNTIME_URL` pointing to an independently running CopilotKit
-runtime; the call gateway does not implement that runtime. Twilio remains unavailable.
-
-`web/` retains the earlier browser transcription/segment-ingest harness for development.
-Use the browser served by `npm run dev` for the integrated browser-to-phone call;
-it uses server-side Gemini transcription and needs no browser OpenAI key or pasted room token.
-
-Provider credentials belong in ignored `agent/.env`. The server and the mobile/web
-token commands read that file; optional app-local `.env` overrides remain supported.
-Generated room tokens are local artifacts and are never committed.
 
 ## Verification
 
 ```bash
-cd meet-mobile-tap/agent
-npm test
-npm run typecheck
-npm run build:web
-npm run smoke:local  # requires npm run livekit:local; synthetic audio, no models/mic
-cd ../server
-npm test
-npm run typecheck
-cd ../mobile
-npm test
-npx tsc --noEmit
-npx expo export --platform ios --output-dir /tmp/secureguia-ios-export
-npx expo export --platform android --output-dir /tmp/secureguia-android-export
+npm test                    # 141 tests across agent, server, mobile
+cd agent && npm run typecheck && npm run build:web
+cd agent && npm run smoke:local   # two real RTC clients, synthetic audio, no models
 ```
 
-The local smoke test joins two real RTC clients through the gateway and verifies
-two-way audible PCM and receipt of the same monitor session through the shared
-browser/mobile snapshot receiver. It does not test physical microphones,
-Cloud networking, or model responses. Test these with real devices and configured keys.
+The local smoke test joins two real RTC clients through the gateway and verifies two-way
+audible PCM and receipt of the same monitor session by the shared snapshot receiver. It does
+**not** test physical microphones, Cloud networking, or model responses.
 
-## Scope and layout
+---
 
-- `agent/src/demo-server.ts`: local join gateway and per-room monitor lifecycle.
-- `agent/src/livekit-monitor.ts`: PCM capture, transcription queues, risk analysis, snapshots.
-- `agent/web/`: browser participant and explicitly simulated presentation mode.
-- `mobile/`: Expo participant, in-call HUD, and local last-seen summary.
-- `shared/session.ts`: validated snapshot format shared by both clients.
-- `shared/room-session.ts`: shared publisher, ordering, restart, and freshness checks.
-- `server/`: session-event API, replay and segment ingestion, mounted on the same gateway.
-- `CLAUDE.md` and `openspec/`: earlier research and proposed contracts; reconciliation remains pending.
+## How it was built
 
-This implementation does not implement Twilio/PSTN, capture calls
-owned by another app, persist transcripts, reconcile the OpenSpec event log, or claim a
-durable final report. The phone's end screen reflects the last snapshot it received.
-The gateway is for a trusted local demo: it has no application login and must not be
-exposed as a public token service. Empty rooms are reclaimed after a short grace period.
+Two days, three people, and a lot of agent-written code — where the interesting problem turned
+out to be coordination rather than typing.
+
+- **One track owns a directory; nobody else writes there.** With several agents working in
+  parallel, two of them editing one file is how the file and the afternoon get lost.
+  [`TRACKS.md`](TRACKS.md) carries the rule and the boundaries.
+- **Contracts cross boundaries, not edits.** A shape change goes into `shared/`, and
+  `tsc --noEmit` in every consumer names who else it touches.
+- **Prose goes stale the moment someone lands a commit.** Every doc here says so, and says to
+  verify against the repo.
+- **The dead ends are documented as carefully as the working paths.**
+  [`CLAUDE.md`](CLAUDE.md) records which capture routes are blocked at the OS level and why,
+  so the next person does not spend an afternoon rediscovering that Android returns silence
+  rather than an error.
+
+Built by [@cdcordobaa](https://github.com/cdcordobaa), toby arc, and Andres Celis.
+
+---
+
+<sub>Consent is a build requirement here, not a footnote: every join is gated on it, and the
+monitor never opens a microphone the user has not agreed to. Recording laws vary — several
+jurisdictions require all-party consent.</sub>
