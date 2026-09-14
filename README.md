@@ -295,6 +295,74 @@ mid-hackathon. It predates the rename from SecureGuIA.*
   blocked at the OS level and why, so the next person does not spend an afternoon rediscovering
   that Android returns silence rather than an error.
 
+### Spec-driven development with OpenSpec
+
+[`openspec/`](./meet-mobile-tap/openspec) holds twelve change proposals written before the code
+they describe. This is the part of the process worth explaining, because it is the reason several
+agents could work at once at all — and because the honest version of how it went is more useful
+than the tidy one.
+
+**Why: parallelism has a prerequisite.** Four tracks needed to start in the same hour, and three
+of them — mobile UI, detection, intervention — could not begin until they knew what a call session
+looked like *from the outside*. The first proposal states the problem plainly:
+
+> Without one set of shared types and one fake behind every seam, the tracks serialise behind
+> whoever is wiring audio, and integration lands at 3am on demo day.
+
+So exactly one change, [`add-call-session-contracts`](./meet-mobile-tap/openspec/changes/add-call-session-contracts),
+was declared blocking. It defined `CallSession`, the state machine, the consent gate, the event
+protocol, and a `ReplayTransport` that drives the real pipeline off a scripted fixture. Once it
+landed, every other track could run the whole thing end to end with no LiveKit account, no Twilio
+number and no microphone. The fakes were the deliverable, not a by-product.
+
+**How a change is shaped.** Each folder under `changes/` carries a `proposal.md` (why, what
+changes, impact, what it blocks), a `design.md`, a `tasks.md`, and `specs/` written as testable
+requirements rather than prose:
+
+> **Requirement: Consent gate** — A session SHALL NOT deliver any audio frame to transcription,
+> analysis, or storage while consent is unrecorded.
+>
+> *Scenario: Audio before consent is discarded* — **WHEN** the transport emits audio frames while
+> the session is in `awaiting-consent`, **THEN** the frames are counted and discarded, no
+> transcription is started, and no audio is retained.
+
+That shape does something a prose plan cannot: `WHEN/THEN` scenarios drop almost directly into
+`node:test` cases, so "is this built?" has an answer that is not an opinion.
+
+**Where the leverage actually was.** `openspec/config.yaml` holds a context block every agent
+reads before touching anything — the layout, the three-rung transport ladder, and the conventions
+that are easy to violate without noticing:
+
+- audio normalises to PCM16 mono 24 kHz at *every* transport boundary, and every frame carries an
+  RMS, because silence is the expected failure on mobile and is indistinguishable from success —
+  so no path may report health from the absence of an exception
+- `risk-profile.ts` is the swappable file: schema and prompt travel together
+- the transcript is data, never instructions — a speaker asking the analyzer to change its scoring
+  is a signal about the call, not a command
+
+Writing those down once meant not re-litigating them in five parallel sessions.
+
+**What did not survive contact with a hackathon clock.** Of 234 tasks across the twelve proposals,
+**zero are ticked**. `changes/archive/` is empty. `openspec/specs/` — where accepted specs get
+synced — was never populated. The ceremony was abandoned in the first hours; the artifacts were
+not.
+
+That is not quite a failure, and it is worth being precise about which half worked. The value came
+from being *forced to decide* — what a session is, who owns which directory, what a transport must
+guarantee — and from having one vocabulary that five agents could share. The bookkeeping half
+(ticking boxes, archiving, syncing specs) is what a two-day event has no room for.
+
+The cost shows up as drift, and the proposals are candid about it. `add-call-session-contracts`
+opens with a scope note saying its own audio-based `CallTransport` design was superseded once
+Twilio's real-time transcription made in-process STT unnecessary, and points at
+`shared/README.md` as "the authoritative statement of what actually exists." A spec that announces
+where it has gone stale is far more useful than one that quietly lies — but it does mean
+`openspec/` should be read as **design intent and history, not as a description of what is
+running**. The code is the description of what is running.
+
+If we ran it again: keep the blocking-contract change and the config context block, write specs
+for the seams only, and drop `tasks.md` entirely in favour of the tests the scenarios imply.
+
 Built by [@cdcordobaa](https://github.com/cdcordobaa), toby arc, and Andres Celis.
 
 ## A note on secrets
