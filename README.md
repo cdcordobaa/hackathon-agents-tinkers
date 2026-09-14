@@ -228,6 +228,72 @@ Stated plainly, because a demo that overstates itself is worse than a smaller ho
 - Health checks say "Configured", never "Ready" — they verify that keys exist, not that any
   provider will answer.
 
+## What it would take to support real phone calls
+
+Vishing happens on the phone network. A fraud product that only watches WebRTC rooms is a demo of
+a technique; one that watches a real inbound PSTN call is the product. This is the gap between the
+two, and it is the best-understood unbuilt thing in the repo — the design already exists as
+[`add-twilio-call-transport`](./meet-mobile-tap/openspec/changes/add-twilio-call-transport).
+
+**The shape changed once already, and that is the important part.** The original plan forked raw
+audio with `<Start><Stream>`: Twilio sends μ-law 8 kHz over a WebSocket, we decode it, resample to
+PCM16 24 kHz, and run our own transcription. The current plan is `<Start><Transcription>` — Twilio
+does the speech-to-text and POSTs speaker-labelled segments to a callback URL. **No media
+WebSocket, no μ-law decode, no resampling, no in-process STT for this path at all.** That deletes
+most of the original work.
+
+### What has to be true
+
+| | Why it is not optional |
+|---|---|
+| **A paid Twilio number** | Trial accounts play a "you have a trial account" preamble before connecting. That is the specific reason [`CLAUDE.md`](./meet-mobile-tap/CLAUDE.md) rejected Twilio for the hackathon. Upgrade ≥24h before any demo. |
+| **A publicly reachable gateway** | Twilio POSTs webhooks *to you*. The current gateway is localhost/LAN with no auth — this is the one change that turns it into an internet-facing service, and it needs signature validation before it is. |
+| **Two callback handlers** | One for transcript segments, one for transcription start/stop/failure. The second exists so a malformed `<Start><Transcription>` surfaces as a reported failure instead of silence. |
+| **Ordering and dedup** | Twilio documents out-of-order and duplicate delivery. Segments map onto `TranscriptSegment` using the payload's own sequencing and event-id fields. |
+| **Prompt 200s** | The segment handler must return quickly or Twilio retries, and the retries become phantom turns in the transcript. |
+
+### What comes free, and what does not
+
+**Free: speaker roles.** The transcription callback carries a `Track` field per leg, so
+`subject` / `counterparty` is known rather than inferred. LiveKit cannot do this — it knows there
+are two participants, not which one is being defrauded.
+
+**Free-ish: speaking into the call.** `<Say>` / `<Play>` on a call update gives `canSpeak: true`.
+That is the first point where the agent could interrupt a scam in progress rather than only warn
+about it.
+
+**Not free: ending the call.** Deferred. Technically Twilio can hang up; deciding when a model is
+allowed to is a different problem.
+
+**Not free, and the real risk: the phone.** `@twilio/voice-react-native-sdk` is a native module
+landing on an Expo project that already carries LiveKit's WebRTC pods. Two native telephony stacks
+in one build is exactly the class of problem the team avoided elsewhere by keeping CopilotKit's
+mobile integration native-module-free. The proposal flags this as a time-boxed spike and says to
+confirm intent before spending it — good instinct, and worth keeping.
+
+An alternative sidesteps it entirely: the phone does not have to be a call leg. Twilio carries the
+media server-side, so the transcript and the risk profile reach the phone over the *existing*
+gateway WebSocket. The app stays a screen, not a softphone. That is a smaller build than the
+proposal assumes.
+
+### Cost and the Colombian wrinkle
+
+Cost is not the obstacle: about **$1.15/month** for a US number and **$0.0085/min** inbound —
+roughly nine cents for a ten-minute demo call. Real-time transcription bills on top.
+
+A **Colombian** number is different. Owning a local DID requires regulatory documentation, which is
+paperwork with a lead time, not a credit card. *Calling* a Colombian number needs none of that. So
+the realistic first version is a Colombian phone dialling a foreign number — enough to prove the
+pipeline, not enough to be the product locally.
+
+### Honest estimate
+
+Two to three days for someone who has done Twilio webhooks before, most of it in the unglamorous
+parts: making the gateway safe to expose, ordering and dedup, and measuring whether Twilio's
+transcription is accurate enough in Spanish — **because in this design its quality is the
+analyzer's ceiling.** The proposal makes that a measured task rather than an assumption, which is
+the right call: no amount of prompt work recovers a signal the transcript never carried.
+
 ## Running a real call
 
 Copy `meet-mobile-tap/agent/.env.example` to `agent/.env`:
@@ -328,6 +394,42 @@ requirements rather than prose:
 
 That shape does something a prose plan cannot: `WHEN/THEN` scenarios drop almost directly into
 `node:test` cases, so "is this built?" has an answer that is not an opinion.
+
+**Why *this* way, and not a plan in a doc.** Four mechanisms did the work, and each exists because
+of a specific way agent-assisted parallel building goes wrong.
+
+*A hard planning boundary.* The propose workflow refuses to write code:
+
+> This workflow creates planning artifacts only. The user request that selected or triggered this
+> workflow authorizes planning only, **even if it asks to build or fix something**. Do not edit
+> project code. After the planning artifacts are complete, stop.
+
+Left alone, an agent asked to "add Twilio support" starts editing files in the first minute. That
+is fine when one agent works alone and fatal when four do, because the design decisions that
+should have been argued about get made silently, in code, in four places. Separating *deciding*
+from *typing* is most of the value, and the boundary has to be enforced rather than intended.
+
+*Fakes as the deliverable.* The blocking change shipped `ReplayTransport`, `FakeTranscriber` and
+`FakeAnalyzer` as first-class outputs. That is what let the mobile track see a rising risk score
+on day one with no OpenAI key, and the detection track tune prompts with no phone. A seam without
+a fake behind it silently serialises every track that crosses it.
+
+*Contracts that fail loudly when they drift.* `shared/src/risk.ts` **re-exports** the analyzer's
+types from `agent/src/risk-profile.ts` instead of restating them, so a green `tsc --noEmit` in
+`shared/` is mechanical proof the analyzer's real output still matches what `shared/` promises
+downstream. A copied type would have drifted within hours and nobody would have noticed until
+integration.
+
+*Docs written against agent overconfidence.* [`TRACKS.md`](./meet-mobile-tap/TRACKS.md) cites
+exact `file.ts:line` for every export, carries a **Known unverified** heading per track, and says
+things like "no gateway exists yet, so there is no endpoint to cite — anyone claiming otherwise
+has not checked." Agents state things confidently; the counter is a document that pre-labels which
+claims have been run and which have only been written.
+
+**How that produced a working system.** The chain is short: one blocking change defined the seams
+→ fakes made every seam crossable alone → directory ownership meant no two writers in one file →
+the re-export made drift a compile error. After that, four tracks could genuinely run at once, and
+the integration that normally lands at 3am on demo day was mostly a matter of removing fakes.
 
 **Where the leverage actually was.** `openspec/config.yaml` holds a context block every agent
 reads before touching anything — the layout, the three-rung transport ladder, and the conventions
