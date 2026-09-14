@@ -290,7 +290,7 @@ out to be coordination rather than typing.
   so the next person does not spend an afternoon rediscovering that Android returns silence
   rather than an error.
 
-Built by [@cdcordobaa](https://github.com/cdcordobaa), toby arc, and Andres Celis.
+Built over the two days of the hackathon by **Cristian Córdoba** ([@cdcordobaa](https://github.com/cdcordobaa)), **Manuel Alejandro Henao Pérez**, **Juan David Córdoba** and **Andrés Celis**.
 
 ---
 

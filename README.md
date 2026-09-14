@@ -363,7 +363,14 @@ running**. The code is the description of what is running.
 If we ran it again: keep the blocking-contract change and the config context block, write specs
 for the seams only, and drop `tasks.md` entirely in favour of the tests the scenarios imply.
 
-Built by [@cdcordobaa](https://github.com/cdcordobaa), toby arc, and Andres Celis.
+## The team
+
+Built over the two days of the hackathon by:
+
+- **Cristian Córdoba** — [@cdcordobaa](https://github.com/cdcordobaa)
+- **Manuel Alejandro Henao Pérez**
+- **Juan David Córdoba**
+- **Andrés Celis**
 
 ## A note on secrets
 
